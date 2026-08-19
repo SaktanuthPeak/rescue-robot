@@ -6,6 +6,7 @@
 	import { PUBLIC_APP_TITLE } from '$env/static/public';
 	import { browser } from '$app/environment';
 	import { SvelteQueryDevtools } from '@tanstack/svelte-query-devtools';
+	import { ModeWatcher } from 'mode-watcher';
 
 	let { children } = $props();
 
@@ -26,6 +27,13 @@
 		{PUBLIC_APP_TITLE}
 	</title>
 </svelte:head>
+
+<!--
+	Required, not cosmetic: ui/sonner already reads `mode.current` from mode-watcher, so
+	without this mounted the `.dark` class is never applied and the toaster theme is wrong.
+	Dark by default suits a low-light fire-monitoring context.
+-->
+<ModeWatcher defaultMode="dark" />
 
 <Toaster position="top-right" richColors />
 

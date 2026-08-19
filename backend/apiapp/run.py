@@ -6,7 +6,8 @@ from .core.router import init_routers
 from .core import http_error, validation_error
 from contextlib import asynccontextmanager
 from .middlewares.base import init_all_middlewares
-from .infrastructure.database import init_beanie
+from .infrastructure.database import close_beanie, init_beanie
+from .infrastructure.telemetry_hub import telemetry_hub
 from loguru import logger
 from .core.config import get_settings
 from dotenv import load_dotenv
@@ -85,11 +86,21 @@ def create_app() -> FastAPI:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    await init_beanie(settings)  # เปิด comment นี้ด้วย
+    if settings.DATABASE_URI:
+        await init_beanie(settings)
+    else:
+        logger.warning(
+            "DATABASE_URI is empty; skipping Beanie init (Phase 1 needs no MongoDB)"
+        )
     init_routers(app, settings)
     use_route_names_as_operation_ids(app)
     add_pagination(app)
-    yield
+    await telemetry_hub.start(settings)
+    try:
+        yield
+    finally:
+        await telemetry_hub.stop()
+        await close_beanie()
 
 
 def use_route_names_as_operation_ids(app: FastAPI) -> None:

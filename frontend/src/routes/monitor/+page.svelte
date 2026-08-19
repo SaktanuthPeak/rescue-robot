@@ -1,0 +1,216 @@
+<script lang="ts">
+	/**
+	 * FireBot flame monitor.
+	 *
+	 * Layout is spatially congruent with the hardware: the four readout cards sit on the
+	 * four sides of the vehicle graphic, matching where the sensors physically are, so an
+	 * operator never has to translate "card 2" into "right side".
+	 */
+	import { page } from '$app/state';
+	import { dev } from '$app/environment';
+	import { toast } from 'svelte-sonner';
+
+	import AppContainer from '$lib/components/app-container.svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { useHealthStatus } from '$lib/features/health/queries';
+	import { ALERT_COOLDOWN_MS, type Level } from '$lib/features/telemetry/constants';
+	import { MOCK_SCENARIOS, parseScenario } from '$lib/features/telemetry/mock-source';
+	import { SIDE_LABELS, SIDES, type Side } from '$lib/features/telemetry/schema';
+	import { telemetryStore } from '$lib/features/telemetry/telemetry.svelte';
+	import FlameReadout from '$lib/features/telemetry/components/flame-readout.svelte';
+	import RobotTopView from '$lib/features/telemetry/components/robot-top-view.svelte';
+	import SimulatedRibbon from '$lib/features/telemetry/components/simulated-ribbon.svelte';
+	import TelemetryDebug from '$lib/features/telemetry/components/telemetry-debug.svelte';
+	import TelemetryStatusBar from '$lib/features/telemetry/components/telemetry-status-bar.svelte';
+
+	const mockScenario = $derived(parseScenario(page.url.searchParams.get('mock')));
+	const showDebug = $derived(page.url.searchParams.get('debug') !== null);
+
+	const health = useHealthStatus();
+	const apiOk = $derived(health.isPending ? null : !health.isError);
+
+	// Connection lifecycle. An $effect guarantees browser-only execution and gives correct
+	// teardown, so navigating away or an HMR reload cannot leak a socket.
+	$effect(() => {
+		const scenario = mockScenario;
+		telemetryStore.start({ mock: scenario });
+		return () => telemetryStore.stop();
+	});
+
+	// Alerting lives in the page, not the store: hysteresis (store) and notification
+	// (here) stay independently testable. These maps are deliberately NOT reactive state
+	// -- they are bookkeeping, and making them reactive would re-trigger the effect.
+	const previousLevels: Record<Side, Level> = {
+		front: 'clear',
+		right: 'clear',
+		rear: 'clear',
+		left: 'clear'
+	};
+	const lastAlertAt: Record<Side, number> = { front: 0, right: 0, rear: 0, left: 0 };
+
+	$effect(() => {
+		const levels = telemetryStore.levels;
+		const now = Date.now();
+		for (const side of SIDES) {
+			const level = levels[side];
+			const escalatedToCritical = level === 'critical' && previousLevels[side] !== 'critical';
+			previousLevels[side] = level;
+			if (!escalatedToCritical) continue;
+			if (now - lastAlertAt[side] < ALERT_COOLDOWN_MS) continue;
+			lastAlertAt[side] = now;
+			toast.error(`Flame detected — ${SIDE_LABELS[side]}`, {
+				description: 'ตรวจพบเปลวไฟความเข้มสูง'
+			});
+		}
+	});
+
+	const sideViews = $derived(telemetryStore.sides);
+	function viewFor(side: Side) {
+		return sideViews.find((v) => v.side === side)!;
+	}
+</script>
+
+<svelte:head>
+	<title>FireBot Monitor</title>
+</svelte:head>
+
+<AppContainer>
+	<header class="flex flex-wrap items-baseline justify-between gap-2">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">FireBot — Flame Monitor</h1>
+			<p class="text-sm text-muted-foreground">
+				IR flame sensors 4 ทิศ · ค่าจาก Arduino ผ่าน serial
+			</p>
+		</div>
+		<Button variant="ghost" size="sm" href="/">← หน้าหลัก</Button>
+	</header>
+
+	<TelemetryStatusBar
+		{apiOk}
+		wsStatus={telemetryStore.status}
+		link={telemetryStore.link}
+		deviceStatus={telemetryStore.deviceStatus}
+		dataAgeMs={telemetryStore.dataAgeMs}
+		stale={telemetryStore.isStale}
+		rateHz={telemetryStore.rateHz}
+		attempt={telemetryStore.attempt}
+		retryInMs={telemetryStore.retryInMs}
+		simulated={telemetryStore.isSimulated}
+		onReconnect={() => telemetryStore.reconnectNow()}
+	/>
+
+	{#if telemetryStore.versionMismatch !== null}
+		<div
+			class="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive"
+			role="alert"
+		>
+			<strong>Telemetry version mismatch.</strong>
+			Backend ส่ง protocol v{telemetryStore.versionMismatch} แต่ dashboard รองรับ v1 — ไม่แสดงค่าเพื่อเลี่ยงการอ่านผิด
+			กรุณาอัปเดต frontend
+		</div>
+	{:else}
+		{#if telemetryStore.isSimulated}
+			<SimulatedRibbon detail={mockScenario ? `client mock: ${mockScenario}` : 'backend mock'} />
+		{/if}
+
+		{#if telemetryStore.isStale && telemetryStore.hasEverConnected}
+			<div
+				class="rounded-md border border-stale/50 bg-stale/10 px-3 py-2 text-sm text-stale"
+				role="alert"
+			>
+				Telemetry stale — ข้อมูลล่าสุดเมื่อ {(telemetryStore.dataAgeMs / 1000).toFixed(1)} วินาทีที่แล้ว
+			</div>
+		{/if}
+
+		{#if telemetryStore.shouldHintMock}
+			<div class="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
+				เชื่อมต่อ backend ไม่ได้ ({telemetryStore.endpoint})
+				{#if dev}
+					— เปิดด้วย
+					{#each MOCK_SCENARIOS as scenario, i (scenario)}
+						<a class="text-foreground underline" href="?mock={scenario}">?mock={scenario}</a>{i <
+						MOCK_SCENARIOS.length - 1
+							? ', '
+							: ''}
+					{/each}
+					เพื่อดู UI ด้วยข้อมูลจำลอง
+				{/if}
+			</div>
+		{/if}
+
+		<!--
+			Two columns on md+: graphic on the left, readouts on the right. The graphic is
+			capped rather than filling its column, so it stays a diagram instead of
+			dominating the page. Cards keep the compass arrangement (front top, rear bottom,
+			left/right in the middle row) so a reading never has to be mapped to a side.
+		-->
+		<div class="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+			<div class="mx-auto w-full max-w-sm md:mx-0">
+				<RobotTopView
+					sides={sideViews}
+					bearing={telemetryStore.bearing}
+					stale={telemetryStore.isStale}
+					veryStale={telemetryStore.isVeryStale}
+				/>
+
+				{#if telemetryStore.frame?.strongest_direction}
+					<p class="text-muted-foreground mt-2 text-center text-sm">
+						ทิศที่แรงที่สุด:
+						<strong class="text-foreground"
+							>{SIDE_LABELS[telemetryStore.frame.strongest_direction]}</strong
+						>
+						· bearing ประมาณ {Math.round(telemetryStore.bearing.deg)}° (confidence {Math.round(
+							telemetryStore.bearing.confidence * 100
+						)}%)
+					</p>
+				{/if}
+			</div>
+
+			<div class="grid grid-cols-2 gap-3">
+				<div class="col-span-2">
+					<FlameReadout
+						view={viewFor('front')}
+						adcMax={telemetryStore.frame?.adc_max ?? null}
+						stale={telemetryStore.isStale}
+					/>
+				</div>
+
+				<FlameReadout
+					view={viewFor('left')}
+					adcMax={telemetryStore.frame?.adc_max ?? null}
+					stale={telemetryStore.isStale}
+				/>
+
+				<FlameReadout
+					view={viewFor('right')}
+					adcMax={telemetryStore.frame?.adc_max ?? null}
+					stale={telemetryStore.isStale}
+				/>
+
+				<div class="col-span-2">
+					<FlameReadout
+						view={viewFor('rear')}
+						adcMax={telemetryStore.frame?.adc_max ?? null}
+						stale={telemetryStore.isStale}
+					/>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<TelemetryDebug
+		open={showDebug}
+		endpoint={telemetryStore.endpoint}
+		status={telemetryStore.status}
+		attempt={telemetryStore.attempt}
+		retryInMs={telemetryStore.retryInMs}
+		messages={telemetryStore.messages}
+		malformed={telemetryStore.malformed}
+		rateHz={telemetryStore.rateHz}
+		dataAgeMs={telemetryStore.dataAgeMs}
+		link={telemetryStore.link}
+		sides={sideViews}
+		lastRaw={telemetryStore.lastRaw}
+		lastError={telemetryStore.lastError}
+	/>
+</AppContainer>

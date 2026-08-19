@@ -37,6 +37,23 @@
   --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
   --sidebar-border: oklch(0.923 0.003 48.717);
   --sidebar-ring: oklch(0.709 0.01 56.259);
+
+  /* FireBot flame heat ramp: cool slate -> amber -> orange -> deep red.
+     Only these four stops are redefined per theme; every intermediate colour is
+     produced by color-mix(in oklab, ...) at runtime, so the ramp stays perceptually
+     even and themes need no extra bookkeeping. */
+  --flame-0: oklch(0.72 0.03 240);
+  --flame-1: oklch(0.83 0.16 88);
+  --flame-2: oklch(0.7 0.19 55);
+  --flame-3: oklch(0.55 0.24 27);
+  --flame-glow: oklch(0.62 0.24 32 / 0.35);
+  --sensor-track: oklch(0.95 0.002 60);
+  --sensor-grid: oklch(0.82 0.004 60);
+  --vehicle-body: oklch(0.93 0.004 60);
+  --vehicle-stroke: oklch(0.78 0.006 60);
+  --vehicle-track: oklch(0.84 0.006 60);
+  --vehicle-accent: oklch(0.55 0.02 60);
+  --stale: oklch(0.62 0.11 78);
 }
 
 .dark {
@@ -71,6 +88,21 @@
   --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.553 0.013 58.071);
+
+  /* Lightness raised, chroma held, so the ramp stays legible on the dark --card
+     without going neon. */
+  --flame-0: oklch(0.55 0.03 240);
+  --flame-1: oklch(0.86 0.17 92);
+  --flame-2: oklch(0.76 0.19 58);
+  --flame-3: oklch(0.66 0.23 25);
+  --flame-glow: oklch(0.72 0.22 40 / 0.45);
+  --sensor-track: oklch(0.26 0.004 60);
+  --sensor-grid: oklch(0.36 0.006 60);
+  --vehicle-body: oklch(0.3 0.006 60);
+  --vehicle-stroke: oklch(0.42 0.008 60);
+  --vehicle-track: oklch(0.24 0.006 60);
+  --vehicle-accent: oklch(0.8 0.02 60);
+  --stale: oklch(0.78 0.13 82);
 }
 
 @theme inline {
@@ -109,6 +141,18 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-flame-0: var(--flame-0);
+  --color-flame-1: var(--flame-1);
+  --color-flame-2: var(--flame-2);
+  --color-flame-3: var(--flame-3);
+  --color-flame-glow: var(--flame-glow);
+  --color-sensor-track: var(--sensor-track);
+  --color-sensor-grid: var(--sensor-grid);
+  --color-vehicle-body: var(--vehicle-body);
+  --color-vehicle-stroke: var(--vehicle-stroke);
+  --color-vehicle-track: var(--vehicle-track);
+  --color-vehicle-accent: var(--vehicle-accent);
+  --color-stale: var(--stale);
 }
 
 @layer base {

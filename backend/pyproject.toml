@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.14"
-fastapi = {extras = ["standard"], version = "^0.139.2"}
+fastapi = {version = ">=0.140.5", extras = ["standard"]}
 pydantic-settings = "^2.14.2"
 loguru = "^0.7.3"
 pydantic = {extras = ["email"], version = "^2.13.4"}
@@ -18,12 +18,13 @@ werkzeug = "^3.1.8"
 python-dotenv = "^1.2.2"
 beanie = "^2.1.0"
 python-jose = "^3.5.0"
-fastapi-pagination = "^0.15.15"
+fastapi-pagination = "^0.15.16"
 bcrypt = "^5.0.0"
 typer = "^0.27.0"
 rich = "^15.0.0"
 questionary = "^2.1.1"
 jinja2 = "^3.1.6"
+pyserial = "^3.5"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -37,6 +38,9 @@ asgi-lifespan = "^2.1.0"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+# tests/ has no __init__.py, so pytest puts tests/ on sys.path rather than the project
+# root. Without this, `from apiapp...` fails to import in conftest.
+pythonpath = ["."]
 
 [tool.poetry.scripts]
 controller = "apiapp.cmd.controller:main"

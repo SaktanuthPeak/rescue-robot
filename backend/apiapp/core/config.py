@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
@@ -50,6 +50,24 @@ class Settings(BaseSettings):
 
     LOGGING_LEVEL: int = logging.INFO
     LOGGERS: Tuple[str, str] = ("uvicorn.asgi", "uvicorn.access")
+
+    # telemetry / flame sensors (Phase 1)
+    # "mock" is the default on purpose: with APP_ENV unset, env_file resolves to a
+    # nonexistent .env.test, so the whole test suite runs on these defaults and must
+    # never open a serial port.
+    TELEMETRY_SOURCE: Literal["mock", "serial"] = "mock"
+    FLAME_SERIAL_PORT: str = "/dev/ttyACM0"
+    FLAME_SERIAL_BAUDRATE: int = 115200
+    FLAME_SERIAL_TIMEOUT_S: float = 1.0
+    FLAME_SERIAL_BOOT_DELAY_S: float = 2.0
+    FLAME_SERIAL_RECONNECT_S: float = 2.0
+    FLAME_ADC_MAX: int = 1023
+    FLAME_THRESHOLD: int = 400
+    # Analog IR flame modules (YG1006) are usually active-low: more IR -> lower ADC.
+    FLAME_ACTIVE_LOW: bool = True
+    TELEMETRY_MOCK_INTERVAL_MS: int = 100
+    TELEMETRY_MIN_BROADCAST_INTERVAL_MS: int = 50
+    TELEMETRY_STALE_AFTER_MS: int = 1500
 
     # find query
     DEFAULT_PAGE_SIZE: int = 20
