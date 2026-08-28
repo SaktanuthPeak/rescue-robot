@@ -1,0 +1,82 @@
+# FireBot web stack for the Raspberry Pi.
+#
+#   docker compose up -d --build
+#
+# Both images build natively on the Pi (arm64). The frontend container terminates all
+# browser traffic on ${WEB_PORT} and proxies /v1 to the backend, so the tablet only ever
+# talks to one origin.
+#
+# With a real Arduino attached, add the serial override:
+#   docker compose -f docker-compose.yml -f docker-compose.serial.yml up -d --build
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: firebot-backend:latest
+    container_name: firebot-backend
+    restart: unless-stopped
+    environment:
+      # APP_ENV=prod makes config.py look for .env.prod, which is absent in the image on
+      # purpose -- these values are the single source of truth for a container run.
+      APP_ENV: prod
+      DEBUG: "${DEBUG:-False}"
+      LOGGING_LEVEL: "${LOGGING_LEVEL:-20}"
+      TITLE: "${TITLE:-FireBot API}"
+      VERSION: "${VERSION:-0.1.0}"
+      DATABASE_URI: "${DATABASE_URI:-}"
+      SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY in .env}"
+      ALLOW_HOSTS: "${ALLOW_HOSTS:-[\"*\"]}"
+      # "mock" runs the whole stack with no hardware attached; "serial" needs the
+      # docker-compose.serial.yml override to pass the USB device through.
+      TELEMETRY_SOURCE: "${TELEMETRY_SOURCE:-mock}"
+      FLAME_SERIAL_PORT: "${FLAME_SERIAL_PORT:-/dev/ttyACM0}"
+      FLAME_SERIAL_BAUDRATE: "${FLAME_SERIAL_BAUDRATE:-115200}"
+      FLAME_SERIAL_TIMEOUT_S: "${FLAME_SERIAL_TIMEOUT_S:-1.0}"
+      FLAME_SERIAL_BOOT_DELAY_S: "${FLAME_SERIAL_BOOT_DELAY_S:-2.0}"
+      FLAME_SERIAL_RECONNECT_S: "${FLAME_SERIAL_RECONNECT_S:-2.0}"
+      FLAME_ADC_MAX: "${FLAME_ADC_MAX:-1023}"
+      FLAME_THRESHOLD: "${FLAME_THRESHOLD:-400}"
+      FLAME_ACTIVE_LOW: "${FLAME_ACTIVE_LOW:-True}"
+      TELEMETRY_MOCK_INTERVAL_MS: "${TELEMETRY_MOCK_INTERVAL_MS:-100}"
+      TELEMETRY_MIN_BROADCAST_INTERVAL_MS: "${TELEMETRY_MIN_BROADCAST_INTERVAL_MS:-50}"
+      TELEMETRY_STALE_AFTER_MS: "${TELEMETRY_STALE_AFTER_MS:-1500}"
+    ports:
+      # Direct access for `pnpm run openapi` and curl debugging; the UI does not use it.
+      - "${API_PORT:-9000}:9000"
+    networks:
+      - firebot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked in at build time by Vite. Point it at the address the *browser* uses to
+        # reach this Pi -- 192.168.4.1 is the access point address from the
+        # embedded-linux-rpi-deployment skill. Changing it requires a rebuild.
+        PUBLIC_API_URL: "${PUBLIC_API_URL:-http://192.168.4.1}"
+        PUBLIC_APP_TITLE: "${PUBLIC_APP_TITLE:-FireBot}"
+    image: firebot-frontend:latest
+    container_name: firebot-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+    networks:
+      - firebot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  firebot:
+    driver: bridge

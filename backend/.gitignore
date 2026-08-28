@@ -39,3 +39,5 @@ htmlcov/
 # Docker
 *.dockerignore
 docker-compose.override.yml
+# ...but .dockerignore is part of the build, not a local artifact.
+!.dockerignore

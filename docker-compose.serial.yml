@@ -1,0 +1,18 @@
+# Overlay for a Pi with the Arduino actually plugged in.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.serial.yml up -d --build
+#
+# Kept separate because `devices:` is a hard requirement: compose refuses to start the
+# container when the path does not exist, which would break every mock/bench run.
+#
+# Find the host dialout gid with `getent group dialout | cut -d: -f3` (20 on Raspberry
+# Pi OS) and set SERIAL_GROUP_ID in .env if it differs.
+
+services:
+  backend:
+    environment:
+      TELEMETRY_SOURCE: serial
+    devices:
+      - "${FLAME_SERIAL_PORT:-/dev/ttyACM0}:${FLAME_SERIAL_PORT:-/dev/ttyACM0}"
+    group_add:
+      - "${SERIAL_GROUP_ID:-20}"
