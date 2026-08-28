@@ -12,8 +12,10 @@ RUN pip install "poetry>=2.0,<3.0"
 WORKDIR /app
 
 # poetry.toml pins virtualenvs.in-project, so the venv lands at /app/.venv and can be
-# copied wholesale into the runtime stage.
-COPY pyproject.toml poetry.lock poetry.toml ./
+# copied wholesale into the runtime stage. The [k] glob makes poetry.lock optional so a
+# checkout without it still builds (poetry resolves instead) rather than dying on COPY.
+COPY pyproject.toml poetry.toml ./
+COPY poetry.loc[k] ./
 RUN poetry install --only main --no-root
 
 # ---- runtime -------------------------------------------------------------------------

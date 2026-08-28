@@ -11,7 +11,8 @@ venv/
 
 # Poetry
 .poetry/
-poetry.lock
+# poetry.lock IS tracked on purpose: the Docker build installs from it, so an untracked
+# lock means the Pi resolves a different dependency set than the machine it was tested on.
 
 # FastAPI logs
 logs/
