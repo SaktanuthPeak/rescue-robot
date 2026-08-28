@@ -13,7 +13,11 @@ services:
   backend:
     build:
       context: ./backend
-    image: firebot-backend:latest
+    # No `image:` key on purpose. Naming an image makes compose treat it as something
+    # that could come from a registry and try to pull it first ("pull access denied for
+    # firebot-frontend"); with only `build:`, compose always builds locally. Readable
+    # names still come from container_name.
+    pull_policy: build
     container_name: firebot-backend
     restart: unless-stopped
     environment:
@@ -61,7 +65,7 @@ services:
         # embedded-linux-rpi-deployment skill. Changing it requires a rebuild.
         PUBLIC_API_URL: "${PUBLIC_API_URL:-http://192.168.4.1}"
         PUBLIC_APP_TITLE: "${PUBLIC_APP_TITLE:-FireBot}"
-    image: firebot-frontend:latest
+    pull_policy: build
     container_name: firebot-frontend
     restart: unless-stopped
     depends_on:
