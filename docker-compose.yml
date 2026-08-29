@@ -8,11 +8,21 @@
 #
 # With a real Arduino attached, add the serial override:
 #   docker compose -f docker-compose.yml -f docker-compose.serial.yml up -d --build
+#
+# Local tweaks (extra ports, bind mounts, debug) belong in docker-compose.override.yml,
+# which compose picks up automatically and .gitignore keeps out of the repo.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   backend:
     build:
       context: ./backend
+      target: runtime
     # No `image:` key on purpose. Naming an image makes compose treat it as something
     # that could come from a registry and try to pull it first ("pull access denied for
     # firebot-frontend"); with only `build:`, compose always builds locally. Readable
@@ -20,6 +30,10 @@ services:
     pull_policy: build
     container_name: firebot-backend
     restart: unless-stopped
+    # tini reaps zombies and forwards SIGTERM to uvicorn, so `compose down` is a clean
+    # shutdown instead of a 10s kill -- which matters when a serial port is held open.
+    init: true
+    stop_grace_period: 10s
     environment:
       # APP_ENV=prod makes config.py look for .env.prod, which is absent in the image on
       # purpose -- these values are the single source of truth for a container run.
@@ -46,19 +60,48 @@ services:
       TELEMETRY_MIN_BROADCAST_INTERVAL_MS: "${TELEMETRY_MIN_BROADCAST_INTERVAL_MS:-50}"
       TELEMETRY_STALE_AFTER_MS: "${TELEMETRY_STALE_AFTER_MS:-1500}"
     ports:
-      # Direct access for `pnpm run openapi` and curl debugging; the UI does not use it.
-      - "${API_PORT:-9000}:9000"
+      # Loopback by default: this port only exists for `pnpm run openapi` and curl
+      # debugging *on the Pi*, the UI reaches the API through the frontend's nginx.
+      # Set API_BIND_HOST=0.0.0.0 in .env to expose it on the access point.
+      - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-9000}:9000"
+    expose:
+      # What nginx in the frontend container actually talks to.
+      - "9000"
     networks:
       - firebot
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    # Declared here as well as in the Dockerfile so `compose ps` health and the
+    # frontend's `service_healthy` gate stay visible/tunable from one file. The Pi is
+    # slow to boot the venv, hence the generous start_period.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/v1/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging: *default-logging
 
   frontend:
     build:
       context: ./frontend
+      target: runtime
       args:
         # Baked in at build time by Vite. Point it at the address the *browser* uses to
         # reach this Pi -- 192.168.4.1 is the access point address from the
@@ -68,18 +111,47 @@ services:
     pull_policy: build
     container_name: firebot-frontend
     restart: unless-stopped
+    init: true
     depends_on:
       backend:
         condition: service_healthy
+        restart: true
     ports:
+      # Public on purpose: this is the dashboard the tablet loads over the Pi's AP.
       - "${WEB_PORT:-80}:80"
     networks:
       - firebot
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # nginx starts as root to bind :80 and to drop workers to the nginx user.
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      # nginx creates its temp paths at startup and writes the pid file, both of which
+      # a read-only rootfs would otherwise refuse.
+      - /var/cache/nginx:rw,nosuid,size=32m
+      - /var/run:rw,noexec,nosuid,size=8m
+      - /tmp:rw,noexec,nosuid,size=8m
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+        reservations:
+          memory: 32M
+    logging: *default-logging
 
 networks:
   firebot:
