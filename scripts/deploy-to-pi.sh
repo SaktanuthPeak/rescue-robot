@@ -12,6 +12,7 @@ PI_HOST="${PI_HOST:-saktanuth@192.168.1.42}"
 PI_DIR="${PI_DIR:-~/rescue-robot}"
 PLATFORM="${PLATFORM:-linux/arm64}"          # linux/arm/v7 for 32-bit Raspberry Pi OS
 PUBLIC_API_URL="${PUBLIC_API_URL:-http://192.168.4.1}"
+EXTRA_COMPOSE_FILES="${EXTRA_COMPOSE_FILES:-}" # e.g. "-f docker-compose.camera.yml -f docker-compose.serial.yml"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -65,7 +66,7 @@ ssh "$PI_HOST" "
   # docker-compose.yml sets pull_policy: build on purpose (never try a registry pull),
   # which also means a bare 'up' rebuilds from source every time. The prebuilt overlay
   # switches that to pull_policy: never so the just-loaded images get used as-is.
-  docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+  docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml $EXTRA_COMPOSE_FILES up -d
 "
 
 echo "==> Done. docker compose ps / logs on the Pi to confirm."

@@ -1,0 +1,20 @@
+# Overlay for a Raspberry Pi with a USB Webcam attached.
+#
+# Usage (Webcam only):
+#   docker compose -f docker-compose.yml -f docker-compose.camera.yml up -d --build
+#
+# Usage (Both Arduino Serial & USB Webcam):
+#   docker compose -f docker-compose.yml -f docker-compose.serial.yml -f docker-compose.camera.yml up -d --build
+#
+# Find host video group gid with: `getent group video | cut -d: -f3` (44 on Debian / Raspberry Pi OS)
+
+services:
+  backend:
+    environment:
+      CAMERA_SOURCE: auto
+      CAMERA_DEVICE: "${CAMERA_DEVICE:-/dev/video0}"
+    devices:
+      - "${CAMERA_DEVICE:-/dev/video0}:${CAMERA_DEVICE:-/dev/video0}"
+    group_add:
+      - "${VIDEO_GROUP_ID:-44}"
+

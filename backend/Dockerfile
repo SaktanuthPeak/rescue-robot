@@ -37,7 +37,7 @@ COPY pyproject.toml poetry.toml ./
 # serial override still adds the *host* dialout gid, which can differ.
 RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid 1000 --create-home app \
-    && usermod -aG dialout app
+    && usermod -aG dialout,video app
 USER app
 
 EXPOSE 9000

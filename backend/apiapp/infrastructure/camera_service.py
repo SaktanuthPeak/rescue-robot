@@ -974,16 +974,41 @@ class CameraService:
                 import cv2
 
                 device = settings.CAMERA_DEVICE
-                dev_arg = int(device) if device.isdigit() else device
-                cap = cv2.VideoCapture(dev_arg)
-                if cap.isOpened():
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-                    cap.set(cv2.CAP_PROP_FPS, self._fps)
-                    self._cv2_cap = cap
-                    self._is_hardware = True
-                    logger.info(f"Camera hardware opened: {settings.CAMERA_DEVICE}")
+                candidates = []
+                if device.isdigit():
+                    candidates.append(int(device))
                 else:
+                    candidates.append(device)
+                    # Extract index if path is like /dev/video0
+                    if device.startswith("/dev/video") and device[10:].isdigit():
+                        candidates.append(int(device[10:]))
+                if 0 not in candidates:
+                    candidates.append(0)
+
+                cap = None
+                for cand in candidates:
+                    try:
+                        # Try V4L2 backend first on Linux
+                        if hasattr(cv2, "CAP_V4L2"):
+                            cap = cv2.VideoCapture(cand, cv2.CAP_V4L2)
+                        if cap is None or not cap.isOpened():
+                            cap = cv2.VideoCapture(cand)
+                        if cap is not None and cap.isOpened():
+                            # Successfully opened webcam
+                            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+                            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+                            cap.set(cv2.CAP_PROP_FPS, self._fps)
+                            # Set MJPG fourcc if supported for faster USB webcam streaming
+                            if hasattr(cv2, "VideoWriter_fourcc"):
+                                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                            self._cv2_cap = cap
+                            self._is_hardware = True
+                            logger.info(f"Camera hardware opened: {cand}")
+                            break
+                    except Exception as probe_err:
+                        logger.debug(f"Candidate {cand} probe error: {probe_err}")
+
+                if not self._is_hardware:
                     logger.info(f"Camera device {settings.CAMERA_DEVICE} not openable; using mock fallback")
             except Exception as exc:
                 logger.info(f"OpenCV/Camera hardware probe: {exc}; using mock fallback")
