@@ -1013,7 +1013,13 @@ class CameraService:
             except Exception as exc:
                 logger.info(f"OpenCV/Camera hardware probe: {exc}; using mock fallback")
 
-        self._latest_jpeg = self._capture_frame_sync()
+        # The pure-Python mock generator + JPEG encoder can take tens of seconds per
+        # frame on weak hardware (Pi 3). Capturing synchronously here used to block the
+        # whole FastAPI lifespan startup for that long, which delayed /v1/health past
+        # the Docker healthcheck window and made `docker compose up` fail with
+        # "dependency backend failed to start". The grabber loop below produces the
+        # first frame in the background instead; get_snapshot()/mjpeg_stream() cope
+        # with self._latest_jpeg still being None until then.
         self._last_frame_time = time.monotonic()
 
         if self._loop_task is None or self._loop_task.done():
@@ -1061,11 +1067,21 @@ class CameraService:
         while True:
             interval = 1.0 / max(self._fps, 1)
             if self._active:
-                self._latest_jpeg = self._capture_frame_sync()
+                # Off the event loop: the pure-Python mock generator + JPEG encoder can
+                # take tens of seconds per frame on weak hardware (Pi 3), and running it
+                # inline here would stall every other coroutine (WebSocket telemetry
+                # included) for that long, every frame interval.
+                self._latest_jpeg = await asyncio.to_thread(self._capture_frame_sync)
             await asyncio.sleep(interval)
 
     def get_snapshot(self) -> bytes:
-        if self._latest_jpeg is None or not self._active:
+        if self._latest_jpeg is None:
+            # Still warming up (grabber_loop's first frame hasn't landed yet). Return a
+            # cheap placeholder instead of generating a full frame synchronously here --
+            # this method is called directly from an async route, so a full mock frame
+            # would block the event loop for as long as startup used to.
+            return generate_mock_frame(8, 8, self._frame_count)
+        if not self._active:
             self._latest_jpeg = self._capture_frame_sync()
         return self._latest_jpeg
 
