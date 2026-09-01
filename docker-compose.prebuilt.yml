@@ -1,0 +1,18 @@
+# Overlay for `docker compose up` on a target that received images via
+# scripts/deploy-to-pi.sh (docker load), not a local build.
+#
+# The base docker-compose.yml sets `pull_policy: build` on purpose so a bare
+# `docker compose up` never tries to pull from a registry -- but that same setting
+# means Compose rebuilds from source EVERY time, even when a matching image is already
+# loaded locally (see docs/docker-deployment.md "Cross-building on a laptop, running on
+# the Pi"). `pull_policy: never` here restores the normal "use the local image if it
+# exists" behavior for this one deploy path, without changing the on-device build
+# default that the base file relies on.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+
+services:
+  backend:
+    pull_policy: never
+  frontend:
+    pull_policy: never

@@ -1,31 +1,27 @@
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi_pagination import add_pagination
+from loguru import logger
 
-from .core.router import init_routers
 from .core import http_error, validation_error
-from contextlib import asynccontextmanager
-from .middlewares.base import init_all_middlewares
+from .core.config import get_settings
+from .core.router import init_routers
+from .infrastructure.camera_service import camera_service
 from .infrastructure.database import close_beanie, init_beanie
 from .infrastructure.telemetry_hub import telemetry_hub
-from loguru import logger
-from .core.config import get_settings
-from dotenv import load_dotenv
-import os
-from pathlib import Path
+from .middlewares.base import init_all_middlewares
 
 
 def create_app() -> FastAPI:
     # Get project root directory (go up 2 levels from run.py)
     project_root = Path(__file__).resolve().parent.parent
 
-    env_file = (
-        ".env"
-        if os.getenv("APP_ENV") == "dev"
-        else ".env.prod"
-        if os.getenv("APP_ENV") == "prod"
-        else ".env.test"
-    )
+    env_file = ".env" if os.getenv("APP_ENV") == "dev" else ".env.prod" if os.getenv("APP_ENV") == "prod" else ".env.test"
     env_path = project_root / env_file
     if not env_path.exists():
         env_path = project_root / ".env"
@@ -44,10 +40,7 @@ def create_app() -> FastAPI:
             s = str(value)
         except Exception:
             return "<unrepresentable>"
-        if any(
-            t in key.upper()
-            for t in ("SECRET", "KEY", "PASSWORD", "TOKEN", "DATABASE", "URI")
-        ):
+        if any(t in key.upper() for t in ("SECRET", "KEY", "PASSWORD", "TOKEN", "DATABASE", "URI")):
             return "<sensitive>"
         return s
 
@@ -55,17 +48,13 @@ def create_app() -> FastAPI:
         all_settings = settings.model_dump()
     except Exception:
         # fallback for older pydantic versions
-        all_settings = getattr(settings, "dict", lambda: {})()
+        all_settings = getattr(settings, "dict", dict)()
 
-    fields_set = getattr(settings, "model_fields_set", None) or getattr(
-        settings, "__pydantic_fields_set__", set()
-    )
+    fields_set = getattr(settings, "model_fields_set", None) or getattr(settings, "__pydantic_fields_set__", set())
 
     logger.debug(f"Settings loaded from: {env_path}")
     if fields_set:
-        logger.debug(
-            f"Fields loaded from env ({len(fields_set)}): {', '.join(sorted(fields_set))}"
-        )
+        logger.debug(f"Fields loaded from env ({len(fields_set)}): {', '.join(sorted(fields_set))}")
         for k in sorted(fields_set):
             v = _mask_sensitive(k, all_settings[k])
             logger.debug(f"{k}={v}")
@@ -74,9 +63,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(lifespan=lifespan, **settings.fastapi_kwargs)
     app.add_exception_handler(HTTPException, http_error.http_error_handler)
-    app.add_exception_handler(
-        RequestValidationError, validation_error.http422_error_handler
-    )
+    app.add_exception_handler(RequestValidationError, validation_error.http422_error_handler)
     init_all_middlewares(app, settings=settings)
     app.router.lifespan_context = lifespan
 
@@ -89,16 +76,16 @@ async def lifespan(app: FastAPI):
     if settings.DATABASE_URI:
         await init_beanie(settings)
     else:
-        logger.warning(
-            "DATABASE_URI is empty; skipping Beanie init (Phase 1 needs no MongoDB)"
-        )
+        logger.warning("DATABASE_URI is empty; skipping Beanie init (Phase 1 needs no MongoDB)")
     init_routers(app, settings)
     use_route_names_as_operation_ids(app)
     add_pagination(app)
     await telemetry_hub.start(settings)
+    await camera_service.start(settings)
     try:
         yield
     finally:
+        await camera_service.stop()
         await telemetry_hub.stop()
         await close_beanie()
 

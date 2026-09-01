@@ -22,6 +22,7 @@
 	import SimulatedRibbon from '$lib/features/telemetry/components/simulated-ribbon.svelte';
 	import TelemetryDebug from '$lib/features/telemetry/components/telemetry-debug.svelte';
 	import TelemetryStatusBar from '$lib/features/telemetry/components/telemetry-status-bar.svelte';
+	import { CameraCard } from '$lib/features/camera';
 
 	const mockScenario = $derived(parseScenario(page.url.searchParams.get('mock')));
 	const showDebug = $derived(page.url.searchParams.get('debug') !== null);
@@ -139,13 +140,21 @@
 		{/if}
 
 		<!--
-			Two columns on md+: graphic on the left, readouts on the right. The graphic is
-			capped rather than filling its column, so it stays a diagram instead of
-			dominating the page. Cards keep the compass arrangement (front top, rear bottom,
-			left/right in the middle row) so a reading never has to be mapped to a side.
+			Responsive Mission Grid:
+			- lg+: 12 cols (5 cols Camera Stream, 3 cols Robot 360 Top-View, 4 cols Flame Sensor Cards)
+			- md/sm: stacked cleanly with full responsiveness
 		-->
-		<div class="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-			<div class="mx-auto w-full max-w-sm md:mx-0">
+		<div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+			<!-- Camera Feed Column -->
+			<div class="lg:col-span-5">
+				<CameraCard
+					strongestDirection={telemetryStore.frame?.strongest_direction}
+					bearingDeg={telemetryStore.bearing.deg}
+				/>
+			</div>
+
+			<!-- Robot 360 Diagram Column -->
+			<div class="mx-auto w-full max-w-sm lg:col-span-3 lg:mx-0">
 				<RobotTopView
 					sides={sideViews}
 					bearing={telemetryStore.bearing}
@@ -154,7 +163,7 @@
 				/>
 
 				{#if telemetryStore.frame?.strongest_direction}
-					<p class="text-muted-foreground mt-2 text-center text-sm">
+					<p class="mt-2 text-center text-sm text-muted-foreground">
 						ทิศที่แรงที่สุด:
 						<strong class="text-foreground"
 							>{SIDE_LABELS[telemetryStore.frame.strongest_direction]}</strong
@@ -166,7 +175,8 @@
 				{/if}
 			</div>
 
-			<div class="grid grid-cols-2 gap-3">
+			<!-- Flame Sensor Readout Cards Column -->
+			<div class="grid grid-cols-2 gap-3 lg:col-span-4">
 				<div class="col-span-2">
 					<FlameReadout
 						view={viewFor('front')}

@@ -188,10 +188,15 @@ REST endpoints เพิ่มเติม: `GET /v1/telemetry` (snapshot รู
 **Phase 3:** Autonomous navigation + pathfinding  
 **Phase 4:** Field deployment + safety validation
 
+สถาปัตยกรรมเป้าหมายแบบเต็มระบบ (Raspberry Pi AP, CAN bus multi-board, RC fail-over, FPV, AI
+pipeline, fail-safe protocols) อยู่ใน [`system-architecture.md`](./system-architecture.md) — เอกสาร
+นั้นคือ target spec ข้าม phase ส่วนไฟล์นี้คือสิ่งที่ implement แล้วจริงใน Phase 1
+
 ---
 
 ## 🔗 Related Documentation
 
+- [System Architecture (target spec, ทุกเฟส)](./system-architecture.md)
 - [Firmware / การต่อสาย + upload](../firmware/README.md)
 - [Backend Setup Guide](../backend/README.md)
 - [Frontend Setup Guide](../frontend/README.md)

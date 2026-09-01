@@ -1,14 +1,12 @@
-import pytest
-import shutil
-from typing import AsyncGenerator, Generator
-from fastapi import FastAPI
-from httpx import AsyncClient, ASGITransport
-from pymongo import AsyncMongoClient
-from asgi_lifespan import LifespanManager
+from collections.abc import AsyncGenerator
 
+import pytest
+from apiapp.core.config import Settings, get_settings
 from apiapp.run import create_app
-from apiapp.core.config import get_settings, Settings
-from apiapp.infrastructure.database import beanie_client
+from asgi_lifespan import LifespanManager
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from pymongo import AsyncMongoClient
 
 
 @pytest.fixture(scope="session")
@@ -25,22 +23,15 @@ def event_loop():
 
 @pytest.fixture(scope="session")
 def settings() -> Settings:
-    """
-    Load settings for tests.
-    We override DATABASE_URI to ensure tests have a connection.
-    """
-    settings = get_settings()
-    if not settings.DATABASE_URI:
-        settings.DATABASE_URI = "mongodb://localhost:27017/test_db"
-    return settings
+    return get_settings()
 
 
 @pytest.fixture(scope="session")
-async def db_client(settings: Settings) -> AsyncGenerator[AsyncMongoClient, None]:
-    """
-    Create a MongoDB client for the test session.
-    """
-    client = AsyncMongoClient(settings.DATABASE_URI)
+async def db_client(settings: Settings) -> AsyncGenerator[AsyncMongoClient | None, None]:
+    if not settings.DATABASE_URI:
+        yield None
+        return
+    client = AsyncMongoClient(settings.DATABASE_URI, serverSelectionTimeoutMS=2000)
     yield client
     await client.close()
 
@@ -61,31 +52,20 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     """
     Create a test client for the FastAPI application.
     """
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
 @pytest.fixture(scope="function", autouse=True)
-async def clean_db(settings: Settings, db_client: AsyncMongoClient):
-    """
-    Clean the database before each test function.
-    This ensures a fresh state for every test.
-    Instead of dropping the whole database, we can just clear collections,
-    but for simplicity/speed with small tests, we might not need to drop everything if we randomise IDs.
-    However, for reliable tests, cleaning is best.
-    """
-    # Assuming the database name is part of the URI or default
+async def clean_db(settings: Settings, db_client: AsyncMongoClient | None):
+    if not settings.DATABASE_URI or db_client is None:
+        yield
+        return
+
     db_name = db_client.get_default_database().name
-    # If we want to be safe and only run on a test database:
     if "test" not in db_name and "test" not in settings.APP_ENV:
         pytest.skip("Running against a non-test database! Aborting.")
 
-    # Option 1: Drop the database (slow but clean)
-    # await db_client.drop_database(db_name)
-
-    # Option 2: Delete all documents from all collections (faster often)
     db = db_client[db_name]
     collections = await db.list_collection_names()
     for collection in collections:

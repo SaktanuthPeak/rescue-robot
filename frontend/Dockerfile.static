@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+#
+# Runtime-only image: assumes `build/` was already produced by a *native* `pnpm run
+# build` on the host (see scripts/deploy-to-pi.sh). Building the SvelteKit SSR+client
+# bundle under QEMU (linux/arm64 on an x86_64 host) makes Node's V8 JIT crash --
+# `qemu: uncaught target signal 6 (Aborted)` after the heap OOMs, even with plenty of
+# host RAM, because the emulation itself is the bottleneck, not memory. This Dockerfile
+# does no compilation, just copies static files into nginx, so it cross-builds for
+# arm64 in seconds regardless of emulation.
+FROM nginx:1.27-alpine AS runtime
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+# `build/` is passed as the named context `frontend-build` (see
+# scripts/deploy-to-pi.sh), not read from the default context -- the default context is
+# ./frontend, whose .dockerignore excludes build/ on purpose for the main Dockerfile.
+COPY --from=frontend-build . /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1

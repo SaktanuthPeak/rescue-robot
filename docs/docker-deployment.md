@@ -61,6 +61,97 @@ docker compose down                   # stop everything
 the per-service units in the `embedded-linux-rpi-deployment` skill are not needed when
 running under compose — use one approach or the other, not both.
 
+## Frontend build OOM on Pi 3 (1GB RAM)
+
+`pnpm run build` runs a SvelteKit SSR+client `vite build`, which needs more heap than a
+Pi 3's default swap (`dphys-swapfile`'s 100MB) leaves available — the build dies with
+`FATAL ERROR: Ineffective mark-compacts near heap limit`. The Dockerfile now sets
+`NODE_OPTIONS=--max-old-space-size=896` in the builder stage, but that ceiling only
+helps once the system actually has that much memory to back it. Bump swap first:
+
+```bash
+sudo dphys-swapfile swapoff
+sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
+sudo dphys-swapfile setup
+sudo dphys-swapfile swapon
+free -h   # confirm ~2GB swap before retrying
+docker compose up -d --build
+```
+
+The build gets slow (swap, not RAM) but should complete instead of crashing. Building
+on the Pi is by design (see the `docker-compose.yml` header comment) — if a build is
+still too slow to be practical, cross-build on a faster machine instead (below).
+
+## Cross-building on a laptop, running on the Pi
+
+Skips the Pi's build step entirely: build both images on a machine with real RAM/CPU,
+then ship the images over instead of the source.
+
+`scripts/deploy-to-pi.sh` automates steps 2-5 below:
+
+```bash
+PI_HOST=saktanuth@192.168.1.42 ./scripts/deploy-to-pi.sh
+```
+
+Override `PLATFORM` (default `linux/arm64`; use `linux/arm/v7` for 32-bit Raspberry Pi
+OS) and `PUBLIC_API_URL` (default `http://192.168.4.1`) as env vars if they differ from
+the defaults. Manual steps, for reference or troubleshooting:
+
+1. **Check the Pi's CPU architecture** (32-bit and 64-bit Raspberry Pi OS need
+   different `--platform`):
+
+   ```bash
+   ssh <user>@<pi-address> uname -m
+   # armv7l -> linux/arm/v7      aarch64 -> linux/arm64
+   ```
+
+2. **One-time on the laptop** — register QEMU so buildx can emulate that architecture
+   (skip if Docker Desktop, which bundles this already):
+
+   ```bash
+   docker run --privileged --rm tonistiigi/binfmt --install all
+   ```
+
+3. **Build both images for the Pi's architecture**, tagged to match the names
+   `docker compose` would generate on the Pi (`<project-dir>-<service>` —
+   `rescue-robot-backend` / `rescue-robot-frontend` for this repo). Pass the same
+   `PUBLIC_API_URL` the Pi's `.env` uses:
+
+   ```bash
+   PLATFORM=linux/arm64   # or linux/arm/v7 — from step 1
+
+   docker buildx build --platform $PLATFORM --target runtime \
+     -t rescue-robot-backend:latest --load ./backend
+
+   docker buildx build --platform $PLATFORM --target runtime \
+     --build-arg PUBLIC_API_URL=http://192.168.4.1 \
+     -t rescue-robot-frontend:latest --load ./frontend
+   ```
+
+4. **Ship and load the images:**
+
+   ```bash
+   docker save rescue-robot-backend:latest rescue-robot-frontend:latest \
+     | gzip > firebot-images.tar.gz
+   scp firebot-images.tar.gz <user>@<pi-address>:~/
+   ssh <user>@<pi-address> 'gunzip -c firebot-images.tar.gz | docker load'
+   ```
+
+5. **On the Pi, start with the `prebuilt` overlay**, which is required, not optional:
+   the base `docker-compose.yml` sets `pull_policy: build` (see its header comment) so
+   that a bare `docker compose up` never tries a registry pull -- but that setting also
+   makes Compose rebuild from source on *every* `up`, even when a matching image is
+   already loaded. `docker-compose.prebuilt.yml` overrides `pull_policy` back to
+   `never` for both services so the loaded images actually get used:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+   ```
+
+Re-run steps 3–5 whenever source changes; `docker compose up -d --build` on the Pi
+would silently rebuild from scratch and undo the point of this, so avoid `--build`
+there unless you're deliberately going back to on-device builds.
+
 ## Regenerating the API client
 
 `API_PORT` (default 9000) is published so the backend stays reachable directly:

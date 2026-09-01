@@ -10,9 +10,11 @@
 </script>
 
 <div class="container mx-auto p-6">
-	<h1 class="mb-6 text-3xl font-bold">API Server Status</h1>
-	<div class="mb-6">
-		<Button href="/monitor/">Open FireBot Monitor</Button>
+	<h1 class="mb-6 text-3xl font-bold">FireBot Mission Control</h1>
+	<div class="mb-6 flex flex-wrap gap-3">
+		<Button href="/monitor/" class="gap-2">
+			<span>Open FireBot Monitor & Camera</span>
+		</Button>
 	</div>
 	<div class="mb-6">
 		{#if authStore.isAuthenticated}

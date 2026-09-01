@@ -1,12 +1,14 @@
 import logging
-import sys
-from typing import Any, Dict, List, Literal, Tuple
-from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
+import sys
+from functools import lru_cache
 from pathlib import Path
+from typing import Any, Literal
 
 from loguru import logger
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from ..utils.logging import InterceptHandler
 
 ENV: str = os.getenv("APP_ENV", "")
@@ -19,6 +21,16 @@ class Settings(BaseSettings):
     # base
     APP_ENV: str = ENV
     DEBUG: bool = False
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "on", "t")
+        return bool(v)
+
     REDIRECT_SLASHES: bool = True
     DOCS_URL: str = "/docs"
     OPENAPI_PREFIX: str = ""
@@ -40,16 +52,16 @@ class Settings(BaseSettings):
 
     # CORS
     ALLOW_CREDENTIALS: bool = True
-    ALLOW_HOSTS: List[str] = ["*"]
-    ALLOW_METHODS: List[str] = ["*"]
-    ALLOW_HEADERS: List[str] = ["*"]
-    DISALLOW_AGENTS: List[str] = [
+    ALLOW_HOSTS: list[str] = ["*"]
+    ALLOW_METHODS: list[str] = ["*"]
+    ALLOW_HEADERS: list[str] = ["*"]
+    DISALLOW_AGENTS: list[str] = [
         "zgrab",
         "wget",
     ]
 
     LOGGING_LEVEL: int = logging.INFO
-    LOGGERS: Tuple[str, str] = ("uvicorn.asgi", "uvicorn.access")
+    LOGGERS: tuple[str, str] = ("uvicorn.asgi", "uvicorn.access")
 
     # telemetry / flame sensors (Phase 1)
     # "mock" is the default on purpose: with APP_ENV unset, env_file resolves to a
@@ -69,6 +81,14 @@ class Settings(BaseSettings):
     TELEMETRY_MIN_BROADCAST_INTERVAL_MS: int = 50
     TELEMETRY_STALE_AFTER_MS: int = 1500
 
+    # camera / video streaming (Raspberry Pi & Mock)
+    CAMERA_SOURCE: Literal["auto", "v4l2", "picam", "mock"] = "auto"
+    CAMERA_DEVICE: str = "/dev/video0"
+    CAMERA_WIDTH: int = 640
+    CAMERA_HEIGHT: int = 480
+    CAMERA_FPS: int = 15
+    CAMERA_AUTO_START: bool = True
+
     # find query
     DEFAULT_PAGE_SIZE: int = 20
     # MAX_PAGE_SIZE: int = 100
@@ -81,17 +101,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=(
-            PROJECT_ROOT / ".env"
-            if "dev" == ENV
-            else PROJECT_ROOT / ".env.prod"
-            if "prod" == ENV
-            else PROJECT_ROOT / ".env.test"
+            PROJECT_ROOT / ".env" if "dev" == ENV else PROJECT_ROOT / ".env.prod" if "prod" == ENV else PROJECT_ROOT / ".env.test"
         ),
         env_file_encoding="utf-8",
     )
 
     @property
-    def fastapi_kwargs(self) -> Dict[str, Any]:
+    def fastapi_kwargs(self) -> dict[str, Any]:
         """FastAPI application configuration"""
         return {
             "debug": self.DEBUG,
