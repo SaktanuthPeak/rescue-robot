@@ -6,9 +6,14 @@
 # Usage (on the Pi):
 #   ./scripts/pi-load-images.sh
 #   ./scripts/pi-load-images.sh ~/some-other-archive.tar.gz
+#   EXTRA_COMPOSE_FILES="" ./scripts/pi-load-images.sh   # skip the camera overlay
 set -euo pipefail
 
 ARCHIVE="${1:-$HOME/firebot-images.tar.gz}"
+# USB webcam is attached by default now -- include docker-compose.camera.yml so
+# /dev/video0 actually gets passed into the container. Override to "" (or add
+# "-f docker-compose.serial.yml") if that changes.
+EXTRA_COMPOSE_FILES="${EXTRA_COMPOSE_FILES:--f docker-compose.camera.yml}"
 
 if [ ! -f "$ARCHIVE" ]; then
   echo "Archive not found: $ARCHIVE" >&2
@@ -28,7 +33,7 @@ echo "==> Restarting the stack with the freshly loaded images"
 # -- see docker-compose.prebuilt.yml and docs/docker-deployment.md. --wait blocks until
 # both services report healthy (or fails loudly) instead of silently leaving a container
 # stuck in "Created" -- that happened once when an earlier 'up' got interrupted.
-docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d --wait backend frontend
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml $EXTRA_COMPOSE_FILES up -d --wait backend frontend
 
 echo "==> Done:"
 docker compose ps

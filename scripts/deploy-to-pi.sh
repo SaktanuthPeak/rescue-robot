@@ -12,7 +12,7 @@ PI_HOST="${PI_HOST:-saktanuth@192.168.1.42}"
 PI_DIR="${PI_DIR:-~/rescue-robot}"
 PLATFORM="${PLATFORM:-linux/arm64}"          # linux/arm/v7 for 32-bit Raspberry Pi OS
 PUBLIC_API_URL="${PUBLIC_API_URL:-http://192.168.4.1}"
-EXTRA_COMPOSE_FILES="${EXTRA_COMPOSE_FILES:-}" # e.g. "-f docker-compose.camera.yml -f docker-compose.serial.yml"
+EXTRA_COMPOSE_FILES="${EXTRA_COMPOSE_FILES:--f docker-compose.camera.yml}" # USB webcam is attached by default now; set to "" to skip, or add "-f docker-compose.serial.yml" for the Arduino too
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
