@@ -25,7 +25,10 @@ docker image ls
 
 echo "==> Restarting the stack with the freshly loaded images"
 # pull_policy: build on the base compose file forces a rebuild on every 'up' otherwise
-# -- see docker-compose.prebuilt.yml and docs/docker-deployment.md.
-docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d
+# -- see docker-compose.prebuilt.yml and docs/docker-deployment.md. --wait blocks until
+# both services report healthy (or fails loudly) instead of silently leaving a container
+# stuck in "Created" -- that happened once when an earlier 'up' got interrupted.
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d --wait backend frontend
 
-echo "==> Done. docker compose ps to confirm both services are healthy."
+echo "==> Done:"
+docker compose ps
