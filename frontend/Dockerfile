@@ -19,10 +19,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-# Pi 3 (1GB RAM) auto-detects a low V8 heap ceiling and OOMs mid-build ("Ineffective
-# mark-compacts... heap out of memory") on the SSR+client bundle. Raising the ceiling
-# only helps once swap actually backs it -- see docs/docker-deployment.md.
-ENV NODE_OPTIONS=--max-old-space-size=896
+# Keep a conservative default for small Pis/dev machines. The RPi AP overlay
+# raises this for an 8GB Pi; tune it with NODE_MAX_OLD_SPACE_SIZE when needed.
+ARG NODE_MAX_OLD_SPACE_SIZE=896
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}
 RUN pnpm run build
 
 # ---- runtime: nginx serves the static bundle and proxies the API ----------------------
