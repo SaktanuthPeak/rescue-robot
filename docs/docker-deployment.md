@@ -21,6 +21,39 @@ docker compose up -d --build
 
 Dashboard: `http://<pi-address>/` — API docs: `http://<pi-address>/docs`.
 
+## Raspberry Pi hotspot deployment
+
+Configure the Pi's Wi-Fi access point first (see the commands below), then run
+Compose with the AP overlay explicitly. Do not use a bare `docker compose up` on
+the Pi because the local `docker-compose.override.yml` may change the bind address
+and the browser API URL.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml ps
+```
+
+The overlay intentionally uses `RPI_PUBLIC_API_URL`, `RPI_WEB_PORT` and
+`RPI_API_PORT`, so a development `.env` containing `localhost` or port `8080` does
+not leak into the Pi deployment. Set them only when changing the defaults:
+
+```bash
+RPI_PUBLIC_API_URL=http://192.168.4.1 RPI_WEB_PORT=80 RPI_API_PORT=9000 \
+  docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml up -d --build
+```
+
+Connect a tablet/laptop to `RescueRobot-WiFi`, then open
+`http://192.168.4.1/`. API docs are at `http://192.168.4.1:9000/docs` when the
+direct backend port is enabled by the overlay.
+
+For a prebuilt image deployment, add `docker-compose.prebuilt.yml` before the AP
+overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml \
+  -f docker-compose.rpi-ap.yml up -d
+```
+
 ## With the Arduino attached
 
 Serial mode needs the USB device passed into the container, which is a separate overlay

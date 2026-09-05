@@ -1,0 +1,22 @@
+# Raspberry Pi Wi-Fi Access Point deployment overlay.
+#
+# Use this file explicitly on the Pi so docker-compose.override.yml (local
+# development settings) is never applied accidentally:
+#   docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml up -d --build
+#
+# The dashboard itself is served by frontend on port 80. The backend port is
+# published for diagnostics and direct API access from the AP; remove the
+# backend `ports` block if that access is not needed.
+
+services:
+  backend:
+    ports: !override
+      - "0.0.0.0:${RPI_API_PORT:-9000}:9000"
+
+  frontend:
+    build:
+      args:
+        # This is a build-time value used by the browser and WebSocket client.
+        PUBLIC_API_URL: "${RPI_PUBLIC_API_URL:-http://192.168.4.1}"
+    ports: !override
+      - "0.0.0.0:${RPI_WEB_PORT:-80}:80"
