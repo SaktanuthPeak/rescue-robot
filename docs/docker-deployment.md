@@ -42,6 +42,19 @@ RPI_PUBLIC_API_URL=http://192.168.4.1 RPI_WEB_PORT=80 RPI_API_PORT=9000 \
   docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml up -d --build
 ```
 
+To make `docker compose up -d` use the Pi AP configuration by default, add this
+line to `.env` on the Pi:
+
+```dotenv
+COMPOSE_FILE=docker-compose.yml:docker-compose.rpi-ap.yml
+```
+
+Then the normal command is enough:
+
+```bash
+docker compose up -d --build
+```
+
 Connect a tablet/laptop to `RescueRobot-WiFi`, then open
 `http://192.168.4.1/`. API docs are at `http://192.168.4.1:9000/docs` when the
 direct backend port is enabled by the overlay.
