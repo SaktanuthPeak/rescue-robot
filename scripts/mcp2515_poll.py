@@ -265,6 +265,7 @@ def main() -> int:
     if args.poll_ms <= 0:
         raise SystemExit("--poll-ms must be greater than zero")
 
+    print(f"Opening SPI device: {args.device}", flush=True)
     controller = MCP2515(
         device=args.device,
         spi_hz=args.spi_hz,
@@ -281,6 +282,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, request_stop)
 
     try:
+        print("Initializing MCP2515 (polling mode, no INT)...", flush=True)
         controller.initialize()
         timing = controller.timing
         print(
@@ -291,9 +293,15 @@ def main() -> int:
         )
 
         delay = args.poll_ms / 1000.0
+        last_waiting_report = time.monotonic()
         while not stop:
             for frame in controller.poll():
                 print(format_frame(frame), flush=True)
+
+            if time.monotonic() - last_waiting_report >= 5.0:
+                print("Waiting for CAN frames...", flush=True)
+                last_waiting_report = time.monotonic()
+
             time.sleep(delay)
     finally:
         controller.close()
