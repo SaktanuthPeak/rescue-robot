@@ -159,15 +159,32 @@ class MCP2515:
     def set_mode(self, mode: int) -> None:
         self.bit_modify(CANCTRL, 0xE0, mode)
         deadline = time.monotonic() + 0.1
+        last_status = 0xFF
         while time.monotonic() < deadline:
-            if self.read_register(CANSTAT) & 0xE0 == mode:
+            last_status = self.read_register(CANSTAT)
+            if last_status & 0xE0 == mode:
                 return
             time.sleep(0.001)
-        raise RuntimeError(f"MCP2515 did not enter mode 0x{mode:02X}")
+        raise RuntimeError(
+            f"MCP2515 did not enter mode 0x{mode:02X}; "
+            f"last CANSTAT=0x{last_status:02X}"
+        )
 
     def initialize(self) -> None:
         self.reset()
-        self.set_mode(MODE_CONFIG)
+        reset_canstat = self.read_register(CANSTAT)
+        reset_canctrl = self.read_register(CANCTRL)
+        print(
+            f"After reset: CANSTAT=0x{reset_canstat:02X} "
+            f"CANCTRL=0x{reset_canctrl:02X}",
+            flush=True,
+        )
+
+        # MCP2515 normally starts in configuration mode after RESET.
+        # Avoid a redundant BIT MODIFY when it is already there, while still
+        # failing with the raw register value when SPI wiring is wrong.
+        if reset_canstat & 0xE0 != MODE_CONFIG:
+            self.set_mode(MODE_CONFIG)
 
         self.write_registers(
             CNF1,
