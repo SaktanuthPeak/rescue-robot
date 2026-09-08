@@ -115,10 +115,8 @@ services:
       context: ./frontend
       target: runtime
       args:
-        # Baked in at build time by Vite. Point it at the address the *browser* uses to
-        # reach this Pi -- 192.168.4.1 is the access point address from the
-        # embedded-linux-rpi-deployment skill. Changing it requires a rebuild.
-        PUBLIC_API_URL: "${PUBLIC_API_URL:-http://192.168.4.1}"
+        # Empty uses the browser's current origin, so any Pi IP/hostname works.
+        PUBLIC_API_URL: "${PUBLIC_API_URL:-}"
         PUBLIC_APP_TITLE: "${PUBLIC_APP_TITLE:-FireBot}"
     pull_policy: build
     container_name: firebot-frontend

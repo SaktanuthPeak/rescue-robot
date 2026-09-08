@@ -90,9 +90,10 @@ open the same USB port.
 
 ## PUBLIC_API_URL is a build-time value
 
-Vite inlines `$env/static/public` at build time, and `resolveWsUrl()` feeds it to
-`new URL()` to derive the `ws://` telemetry endpoint — so it must be an **absolute** URL,
-and changing it requires `docker compose up -d --build`, not a restart.
+Vite inlines `$env/static/public` at build time. Leave `PUBLIC_API_URL` empty to use the
+browser's current origin for REST and WebSocket telemetry, so one build works via any Pi
+IP or hostname. A non-empty value is fixed at build time and requires
+`docker compose up -d --build`, not only a restart.
 
 Set it to the dashboard's own address (nginx proxies from there), not port 9000:
 

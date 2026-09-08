@@ -6,11 +6,12 @@ import { BACKOFF_BASE_MS, BACKOFF_FACTOR, BACKOFF_MAX_MS, WS_PATH } from './cons
 import type { SourceHandlers, TelemetrySource } from './source';
 
 /**
- * Derive the WebSocket URL from PUBLIC_API_URL so `.env` stays the single source of
- * truth -- a second env var for the same backend is one more thing to get out of sync.
+ * Derive the WebSocket URL from PUBLIC_API_URL. When it is empty, use the browser's
+ * current origin so the same build works through any Pi IP or hostname.
  */
 export function resolveWsUrl(apiUrl: string = PUBLIC_API_URL): string {
-	const url = new URL(apiUrl);
+	const baseUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+	const url = new URL(baseUrl);
 	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 	url.pathname = WS_PATH;
 	url.search = '';
