@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 FlameDirection = Literal["front", "right", "rear", "left"]
 LinkState = Literal["streaming", "connecting", "disconnected"]
-SourceKind = Literal["mock", "serial"]
+SourceKind = Literal["mock", "serial", "receiver"]
 DeviceStatus = Literal["OK", "WARN", "FAULT"]
 
 TELEMETRY_PROTOCOL_VERSION = 1

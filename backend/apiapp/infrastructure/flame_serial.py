@@ -1,4 +1,4 @@
-"""Flame telemetry transport: FB1 line protocol, plus mock and serial sources.
+"""Flame telemetry transport: legacy FB1, receiver RB3, mock and serial sources.
 
 Wire format emitted by the Arduino sketch in ``firmware/flame_telemetry``::
 
@@ -34,6 +34,7 @@ from typing import Callable, Literal
 from loguru import logger
 
 from ..core.config import Settings
+from .receiver_canbus import ReceiverSample, receiver_canbus_service
 
 DeviceStatus = Literal["OK", "WARN", "FAULT"]
 LinkState = Literal["streaming", "connecting", "disconnected"]
@@ -113,7 +114,7 @@ class FlameSource(ABC):
     thread. That symmetry is what removes any need for a queue between source and hub.
     """
 
-    kind: Literal["mock", "serial"]
+    kind: Literal["mock", "serial", "receiver"]
 
     @abstractmethod
     async def start(
@@ -347,8 +348,82 @@ class SerialFlameSource(FlameSource):
                 self._stop.wait(self._reconnect_s)
 
 
+class ReceiverFlameSource(FlameSource):
+    """Use receiver-canbus RB3 samples without opening a second serial port."""
+
+    kind = "receiver"
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._sink: Sink | None = None
+        self._on_state: StateSink | None = None
+        self._on_parse_error: Callable[[], None] | None = None
+        self._unsubscribe: Callable[[], None] | None = None
+
+    async def start(
+        self,
+        sink: Sink,
+        on_state: StateSink,
+        on_parse_error: Callable[[], None] | None = None,
+    ) -> None:
+        if self._unsubscribe is not None:
+            return
+        self._loop = asyncio.get_running_loop()
+        self._sink = sink
+        self._on_state = on_state
+        self._on_parse_error = on_parse_error
+        on_state("connecting")
+        self._unsubscribe = receiver_canbus_service.subscribe(
+            self._receive_sample,
+            self._receive_state,
+            self._receive_parse_error,
+        )
+
+    async def stop(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        self._loop = None
+        self._sink = None
+        self._on_state = None
+        self._on_parse_error = None
+
+    def _post(self, fn: Callable[..., None], *args: object) -> None:
+        if self._loop is None:
+            return
+        try:
+            self._loop.call_soon_threadsafe(fn, *args)
+        except RuntimeError:
+            pass
+
+    def _receive_state(self, state: str) -> None:
+        if self._on_state is None:
+            return
+        self._post(self._on_state, "disconnected" if state == "disabled" else state)
+
+    def _receive_parse_error(self) -> None:
+        if self._on_parse_error is not None:
+            self._post(self._on_parse_error)
+
+    def _receive_sample(self, sample: ReceiverSample) -> None:
+        if not sample.flame_valid or self._sink is None:
+            return
+        flame_sample = FlameSample(
+            front=sample.flame_front,
+            right=sample.flame_right,
+            rear=sample.flame_rear,
+            left=sample.flame_left,
+            status="OK",
+            seq=sample.sequence,
+            received_at=sample.received_at,
+        )
+        self._post(self._sink, flame_sample)
+
+
 def create_flame_source(settings: Settings) -> FlameSource:
     """Pick the transport named by TELEMETRY_SOURCE."""
+    if settings.TELEMETRY_SOURCE == "receiver":
+        return ReceiverFlameSource()
     if settings.TELEMETRY_SOURCE == "serial":
         return SerialFlameSource(settings)
     return MockFlameSource(settings)

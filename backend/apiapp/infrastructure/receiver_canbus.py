@@ -1,10 +1,11 @@
 """USB serial transport for the receiver-canbus Arduino.
 
-The receiver emits one RB2 snapshot every 100 ms:
-    RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,adc_value,seq*CK
+The receiver emits one RB3 snapshot every 100 ms:
+    RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,seq*CK
 
-This transport is intentionally separate from flame_serial.py.  The two devices use
-different wire protocols and must not share one serial port at the same time.
+This transport owns the receiver USB port.  The ``receiver`` flame source subscribes
+to it, so the robot and flame dashboards consume one decoded stream without opening
+the same serial port twice.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Callable, Literal
 
 from loguru import logger
 
@@ -35,6 +36,10 @@ STATUS_NAMES: dict[int, str] = {
 
 LinkState = Literal["disabled", "connecting", "streaming", "disconnected"]
 
+ReceiverSampleSink = Callable[["ReceiverSample"], None]
+ReceiverStateSink = Callable[[LinkState], None]
+ReceiverParseErrorSink = Callable[[], None]
+
 
 @dataclass(frozen=True, slots=True)
 class ReceiverSample:
@@ -44,14 +49,19 @@ class ReceiverSample:
     arm_alive: bool
     battery_millivolts: int
     battery_adc: int
+    flame_front: int
+    flame_right: int
+    flame_rear: int
+    flame_left: int
+    flame_valid: bool
     sequence: int
     received_at: datetime
 
 
 def parse_line(raw: bytes) -> ReceiverSample | None:
-    """Decode one RB1/RB2 line and reject noise, malformed fields, or bad checksum."""
+    """Decode one RB1/RB2/RB3 line and reject noise, malformed fields, or bad checksum."""
     text = raw.decode("ascii", errors="ignore").strip()
-    if not text.startswith(("RB1,", "RB2,")):
+    if not text.startswith(("RB1,", "RB2,", "RB3,")):
         return None
 
     payload, separator, checksum_text = text.partition("*")
@@ -74,6 +84,8 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         return None
     if fields[0] == "RB2" and len(fields) != 8:
         return None
+    if fields[0] == "RB3" and len(fields) != 12:
+        return None
 
     try:
         motor_code = int(fields[1])
@@ -83,10 +95,23 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         if fields[0] == "RB2":
             battery_millivolts = int(fields[5])
             battery_adc = int(fields[6])
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
             sequence = int(fields[7])
+        elif fields[0] == "RB3":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            flame_front = int(fields[7])
+            flame_right = int(fields[8])
+            flame_rear = int(fields[9])
+            flame_left = int(fields[10])
+            flame_valid = True
+            sequence = int(fields[11])
         else:
             battery_millivolts = 0
             battery_adc = 0
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
             sequence = int(fields[5])
     except ValueError:
         return None
@@ -99,7 +124,8 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         motor_alive not in (0, 1)
         or arm_alive not in (0, 1)
         or battery_millivolts < 0
-        or battery_adc < 0
+        or not 0 <= battery_adc <= 1023
+        or not all(0 <= value <= 1023 for value in (flame_front, flame_right, flame_rear, flame_left))
         or sequence < 0
     ):
         return None
@@ -111,6 +137,11 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         arm_alive=bool(arm_alive),
         battery_millivolts=battery_millivolts,
         battery_adc=battery_adc,
+        flame_front=flame_front,
+        flame_right=flame_right,
+        flame_rear=flame_rear,
+        flame_left=flame_left,
+        flame_valid=flame_valid,
         sequence=sequence,
         received_at=datetime.now(UTC),
     )
@@ -131,16 +162,61 @@ class ReceiverCanbusService:
         self._parse_errors = 0
         self._last_command: str | None = None
         self._last_command_at: datetime | None = None
+        self._listeners: set[
+            tuple[ReceiverSampleSink, ReceiverStateSink | None, ReceiverParseErrorSink | None]
+        ] = set()
+
+    def subscribe(
+        self,
+        on_sample: ReceiverSampleSink,
+        on_state: ReceiverStateSink | None = None,
+        on_parse_error: ReceiverParseErrorSink | None = None,
+    ) -> Callable[[], None]:
+        """Subscribe to decoded samples without opening another serial port."""
+        listener = (on_sample, on_state, on_parse_error)
+        with self._lock:
+            self._listeners.add(listener)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                self._listeners.discard(listener)
+
+        return unsubscribe
+
+    def _notify_state(self, state: LinkState) -> None:
+        with self._lock:
+            listeners = tuple(self._listeners)
+        for _, on_state, _ in listeners:
+            if on_state is not None:
+                on_state(state)
+
+    def _notify_sample(self, sample: ReceiverSample) -> None:
+        with self._lock:
+            listeners = tuple(self._listeners)
+        for on_sample, _, _ in listeners:
+            on_sample(sample)
+
+    def _notify_parse_error(self) -> None:
+        with self._lock:
+            listeners = tuple(self._listeners)
+        for _, _, on_parse_error in listeners:
+            if on_parse_error is not None:
+                on_parse_error()
 
     async def start(self, settings: Settings) -> None:
         if not settings.ROBOT_SERIAL_ENABLED or self._thread is not None:
             self._settings = settings
-            self._state = "disabled" if not settings.ROBOT_SERIAL_ENABLED else self._state
+            if not settings.ROBOT_SERIAL_ENABLED:
+                with self._lock:
+                    self._state = "disabled"
+                self._notify_state("disabled")
             return
 
         self._settings = settings
         self._stop.clear()
-        self._state = "connecting"
+        with self._lock:
+            self._state = "connecting"
+        self._notify_state("connecting")
         self._thread = threading.Thread(
             target=self._run,
             name="receiver-canbus-serial",
@@ -165,9 +241,10 @@ class ReceiverCanbusService:
                 pass
         self._thread.join(timeout=2.0)
         self._thread = None
-        self._state = "disabled"
         with self._lock:
+            self._state = "disabled"
             self._serial = None
+        self._notify_state("disabled")
 
     def send_command(self, channel: str, code: int) -> bool:
         """Send a one-shot command; the firmware applies its own fail-safe."""
@@ -231,7 +308,9 @@ class ReceiverCanbusService:
             import serial
         except ImportError:
             logger.error("pyserial is not installed; install the backend dependencies")
-            self._state = "disconnected"
+            with self._lock:
+                self._state = "disconnected"
+            self._notify_state("disconnected")
             return
 
         settings = self._settings
@@ -258,20 +337,24 @@ class ReceiverCanbusService:
                         continue
                     sample = parse_line(line)
                     if sample is None:
-                        if line.lstrip().startswith((b"RB1,", b"RB2,")):
+                        if line.lstrip().startswith((b"RB1,", b"RB2,", b"RB3,")):
                             with self._lock:
                                 self._parse_errors += 1
+                            self._notify_parse_error()
                         continue
                     with self._lock:
                         self._latest = sample
                         self._last_frame_monotonic = time.monotonic()
                         self._state = "streaming"
+                    self._notify_state("streaming")
+                    self._notify_sample(sample)
             except Exception as exc:
                 logger.warning(
                     f"receiver CAN serial error on {settings.ROBOT_SERIAL_PORT}: {exc!r}"
                 )
                 with self._lock:
                     self._state = "disconnected"
+                self._notify_state("disconnected")
             finally:
                 if port is not None:
                     try:
@@ -285,6 +368,7 @@ class ReceiverCanbusService:
             if not self._stop.is_set():
                 with self._lock:
                     self._state = "connecting"
+                self._notify_state("connecting")
                 self._stop.wait(settings.ROBOT_SERIAL_RECONNECT_S)
 
 

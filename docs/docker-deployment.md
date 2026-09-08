@@ -67,20 +67,26 @@ docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml \
   -f docker-compose.rpi-ap.yml up -d
 ```
 
-## With the Arduino attached
+## With the receiver-canbus Arduino attached
 
-Serial mode needs the USB device passed into the container, which is a separate overlay
-because compose refuses to start when a `devices:` path is missing (that would break
-every bench run without hardware):
+The receiver-canbus mode passes the USB device into the backend container and reads the
+single RB3 stream for flame, battery and CAN status. It is a separate overlay because
+compose refuses to start when a `devices:` path is missing (that would break every
+bench run without hardware):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.serial.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml \
+  -f docker-compose.robot-serial.yml up -d --build
 ```
 
-If `/dev/ttyACM0` is not the right port, set `FLAME_SERIAL_PORT` in `.env`. If the host's
+If `/dev/ttyACM0` is not the right port, set `ROBOT_SERIAL_PORT` in `.env`. If the host's
 `dialout` group is not gid 20, set `SERIAL_GROUP_ID` to `getent group dialout | cut -d: -f3`.
 The udev rules in the `embedded-linux-rpi-deployment` skill still apply on the host — the
 container inherits whatever permissions the device node has.
+
+`docker-compose.serial.yml` is only for the legacy standalone FB1 flame board. Do not
+combine it with `docker-compose.robot-serial.yml`, because both readers would try to
+open the same USB port.
 
 ## PUBLIC_API_URL is a build-time value
 

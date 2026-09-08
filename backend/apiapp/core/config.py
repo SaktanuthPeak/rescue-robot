@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # "mock" is the default on purpose: with APP_ENV unset, env_file resolves to a
     # nonexistent .env.test, so the whole test suite runs on these defaults and must
     # never open a serial port.
-    TELEMETRY_SOURCE: Literal["mock", "serial"] = "mock"
+    TELEMETRY_SOURCE: Literal["mock", "serial", "receiver"] = "mock"
     FLAME_SERIAL_PORT: str = "/dev/ttyACM0"
     FLAME_SERIAL_BAUDRATE: int = 115200
     FLAME_SERIAL_TIMEOUT_S: float = 1.0

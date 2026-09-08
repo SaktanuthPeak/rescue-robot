@@ -15,7 +15,7 @@
 
 import { z } from 'zod';
 
-/** Sensor order matches Arduino pins A0..A3 and the FB1 line protocol. */
+/** Sensor order matches receiver-canbus RB3: front, right, rear, left (Arduino A1..A4). */
 export const SIDES = ['front', 'right', 'rear', 'left'] as const;
 export type Side = (typeof SIDES)[number];
 
@@ -39,7 +39,7 @@ export const flameChannelsSchema = z.object({
 });
 
 export const linkStateSchema = z.enum(['streaming', 'connecting', 'disconnected']);
-export const sourceKindSchema = z.enum(['mock', 'serial']);
+export const sourceKindSchema = z.enum(['mock', 'serial', 'receiver']);
 export const deviceStatusSchema = z.enum(['OK', 'WARN', 'FAULT']);
 
 export const telemetryLinkSchema = z.object({

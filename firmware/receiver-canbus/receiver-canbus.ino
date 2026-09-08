@@ -1,9 +1,10 @@
 #include <SPI.h>
 #include <mcp_can.h>
+#include <U8g2lib.h>
 #include <stdio.h>
 
 // =====================================================
-// CAN CONFIGURATION
+// CAN BUS
 // =====================================================
 
 const byte CAN_CS_PIN = 10;
@@ -13,29 +14,85 @@ const unsigned long CAN_ID_MOTOR = 0x100;
 const unsigned long CAN_ID_ARM = 0x101;
 
 const unsigned long CAN_TIMEOUT_MS = 300;
-const unsigned long TELEMETRY_INTERVAL_MS = 100;
 const unsigned long SERIAL_COMMAND_TIMEOUT_MS = 400;
 
 MCP_CAN CAN0(CAN_CS_PIN);
 
 // =====================================================
-// VOLTAGE SENSOR CONFIGURATION
-// อ้างอิงค่าจาก Last Minute Engineers
+// OLED SOFTWARE I2C
+//
+// OLED SDA -> Arduino D6
+// OLED SCL -> Arduino D7
 // =====================================================
 
-#define ANALOG_IN_PIN A0
+const byte OLED_SDA_PIN = 6;
+const byte OLED_SCL_PIN = 7;
 
-const float R1 = 30000.0;
-const float R2 = 7500.0;
-const float REF_VOLTAGE = 5.0;
+const unsigned long OLED_INTERVAL_MS = 250;
+unsigned long lastOledTime = 0;
+
+// ใช้ Page Buffer เพื่อลดการใช้ RAM ของ Arduino Uno
+U8G2_SSD1306_128X64_NONAME_1_SW_I2C oled(
+  U8G2_R0,
+  OLED_SCL_PIN,
+  OLED_SDA_PIN,
+  U8X8_PIN_NONE);
+
+// ถ้าจอเป็น SH1106 ให้ใช้บรรทัดนี้แทน:
+//
+// U8G2_SH1106_128X64_NONAME_1_SW_I2C oled(
+//     U8G2_R0,
+//     OLED_SCL_PIN,
+//     OLED_SDA_PIN,
+//     U8X8_PIN_NONE
+// );
+
+// =====================================================
+// VOLTAGE SENSOR — A0
+// =====================================================
+
+const byte VOLTAGE_SENSOR_PIN = A0;
+
+const float VOLTAGE_R1 = 30000.0;
+const float VOLTAGE_R2 = 7500.0;
+const float ADC_REFERENCE_VOLTAGE = 5.0;
 
 int voltageAdcValue = 0;
 float adcVoltage = 0.0;
 float inputVoltage = 0.0;
 
 // =====================================================
+// FLAME SENSOR — A1 ถึง A4
+// =====================================================
+
+const byte FLAME_SENSOR_COUNT = 4;
+
+const byte FLAME_SENSOR_PINS[FLAME_SENSOR_COUNT] = {
+  A1,
+  A2,
+  A3,
+  A4
+};
+
+int flameAdcValue[FLAME_SENSOR_COUNT] = {
+  0,
+  0,
+  0,
+  0
+};
+
+// =====================================================
+// TIMING
+// =====================================================
+
+const unsigned long SENSOR_INTERVAL_MS = 100;
+
+unsigned long lastSensorTime = 0;
+unsigned long telemetrySequence = 0;
+
+// =====================================================
 // STATUS
-// ต้องเหมือนกันทั้ง Arduino ตัวส่งและตัวรับ
+// ต้องเหมือนกับ Arduino ตัวส่ง
 // =====================================================
 
 enum PS2_Status : uint8_t {
@@ -52,10 +109,6 @@ enum PS2_Status : uint8_t {
   Clamp = 10
 };
 
-// =====================================================
-// CAN STATE
-// =====================================================
-
 int lastMotorStatus = -1;
 int lastArmStatus = -1;
 
@@ -65,22 +118,15 @@ bool armCanActive = false;
 unsigned long lastMotorMessageTime = 0;
 unsigned long lastArmMessageTime = 0;
 
+// USB serial command state from Raspberry Pi
 bool serialMotorActive = false;
 bool serialArmActive = false;
 unsigned long lastSerialMotorCommandTime = 0;
 unsigned long lastSerialArmCommandTime = 0;
 
 // =====================================================
-// TELEMETRY STATE
-// =====================================================
-
-unsigned long telemetrySequence = 0;
-unsigned long lastTelemetryTime = 0;
-
-// =====================================================
-// ฟังก์ชันควบคุมมอเตอร์
-//
-// นำโค้ดควบคุมมอเตอร์จริงมาใส่ในฟังก์ชันเหล่านี้
+// MOTOR FUNCTIONS
+// ใส่คำสั่งควบคุมมอเตอร์จริงแทน Serial.println()
 // =====================================================
 
 void motor_forward() {
@@ -120,9 +166,8 @@ void motor_stop() {
 }
 
 // =====================================================
-// ฟังก์ชันควบคุมแขน
-//
-// นำโค้ดควบคุมแขนจริงมาใส่ในฟังก์ชันเหล่านี้
+// ARM FUNCTIONS
+// ใส่คำสั่งควบคุมแขนจริงแทน Serial.println()
 // =====================================================
 
 void arm_forward() {
@@ -154,7 +199,7 @@ void gripper_clamp() {
 }
 
 // =====================================================
-// APPLY MOTOR STATUS
+// APPLY STATUS
 // =====================================================
 
 void apply_motor_from_status(PS2_Status current) {
@@ -198,10 +243,6 @@ void apply_motor_from_status(PS2_Status current) {
   }
 }
 
-// =====================================================
-// APPLY ARM STATUS
-// =====================================================
-
 void apply_arm_from_status(PS2_Status current) {
   switch (current) {
     case FORWARD:
@@ -240,42 +281,8 @@ void apply_arm_from_status(PS2_Status current) {
 }
 
 // =====================================================
-// VALIDATE STATUS
-// =====================================================
-
-bool is_valid_motor_status(byte value) {
-  return value <= BACKWARD_RIGHT;
-}
-
-bool is_valid_arm_status(byte value) {
-  return value <= Clamp;
-}
-
-// =====================================================
-// READ VOLTAGE SENSOR
-// สูตรจากเว็บที่ให้มา
-// =====================================================
-
-void read_voltage_sensor() {
-  // อ่าน ADC จากขา A0
-  voltageAdcValue = analogRead(ANALOG_IN_PIN);
-
-  // แรงดันที่ขา ADC
-  adcVoltage =
-    (voltageAdcValue * REF_VOLTAGE) / 1024.0;
-
-  // คำนวณแรงดันก่อนผ่าน Voltage Divider
-  inputVoltage =
-    adcVoltage * (R1 + R2) / R2;
-}
-
-// =====================================================
-// PROCESS CAN MESSAGE
-// =====================================================
-
-// =====================================================
-// PROCESS COMMAND FROM RASPBERRY PI
-// รูปแบบคำสั่ง: CMD:MOTOR:<code>, CMD:ARM:<code>, CMD:ALL:0
+// USB COMMANDS FROM RASPBERRY PI
+// CMD:MOTOR:<code>, CMD:ARM:<code>, CMD:ALL:0
 // =====================================================
 
 void process_serial_command(String line) {
@@ -291,10 +298,10 @@ void process_serial_command(String line) {
       return;
     }
 
-    lastMotorStatus = STOP;
-    lastArmStatus = STOP;
     serialMotorActive = false;
     serialArmActive = false;
+    lastMotorStatus = STOP;
+    lastArmStatus = STOP;
     apply_motor_from_status(STOP);
     apply_arm_from_status(STOP);
     Serial.println("CMD ACK: ALL STOP");
@@ -324,6 +331,7 @@ void process_serial_command(String line) {
     }
 
     lastArmStatus = code;
+    // Gripper actions are one-shot; only arm movement uses the heartbeat timeout.
     serialArmActive = code >= FORWARD && code <= BACKWARD_RIGHT;
     lastSerialArmCommandTime = millis();
     apply_arm_from_status(static_cast<PS2_Status>(code));
@@ -352,29 +360,47 @@ void process_serial_commands() {
   }
 }
 
+// =====================================================
+// SENSOR FUNCTIONS
+// =====================================================
+
+void read_voltage_sensor() {
+  voltageAdcValue = analogRead(VOLTAGE_SENSOR_PIN);
+
+  adcVoltage =
+    (voltageAdcValue * ADC_REFERENCE_VOLTAGE) / 1024.0;
+
+  inputVoltage =
+    adcVoltage * (VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2;
+}
+
+void read_flame_sensors() {
+  for (byte i = 0; i < FLAME_SENSOR_COUNT; i++) {
+    flameAdcValue[i] =
+      analogRead(FLAME_SENSOR_PINS[i]);
+  }
+}
+
+// =====================================================
+// CAN MESSAGE
+// =====================================================
+
 void process_can_message(
   unsigned long canId,
   byte dataLength,
   byte *receivedData) {
   if (dataLength < 1) {
-    Serial.println("CAN ERROR: Empty frame");
     return;
   }
 
   byte receivedStatus = receivedData[0];
 
-  // -------------------------------------------------
-  // Motor
-  // -------------------------------------------------
-
+  // Motor command
   if (canId == CAN_ID_MOTOR) {
-    if (!is_valid_motor_status(receivedStatus)) {
-      Serial.println("CAN ERROR: Invalid motor status");
-
+    if (receivedStatus > BACKWARD_RIGHT) {
       motor_stop();
       motorCanActive = false;
       lastMotorStatus = -1;
-
       return;
     }
 
@@ -389,18 +415,12 @@ void process_can_message(
     }
   }
 
-  // -------------------------------------------------
-  // Arm
-  // -------------------------------------------------
-
+  // Arm command
   else if (canId == CAN_ID_ARM) {
-    if (!is_valid_arm_status(receivedStatus)) {
-      Serial.println("CAN ERROR: Invalid arm status");
-
+    if (receivedStatus > Clamp) {
       arm_stop();
       armCanActive = false;
       lastArmStatus = -1;
-
       return;
     }
 
@@ -416,8 +436,28 @@ void process_can_message(
   }
 }
 
+void read_can_bus() {
+  while (CAN0.checkReceive() == CAN_MSGAVAIL) {
+    unsigned long receivedId = 0;
+    byte dataLength = 0;
+    byte receivedData[8];
+
+    byte result = CAN0.readMsgBuf(
+      &receivedId,
+      &dataLength,
+      receivedData);
+
+    if (result == CAN_OK) {
+      process_can_message(
+        receivedId,
+        dataLength,
+        receivedData);
+    }
+  }
+}
+
 // =====================================================
-// CHECK CAN TIMEOUT
+// CAN TIMEOUT
 // =====================================================
 
 void check_can_timeout() {
@@ -445,13 +485,13 @@ void check_can_timeout() {
 }
 
 // =====================================================
-// SERIAL COMMAND TIMEOUT
+// USB COMMAND TIMEOUT
 // =====================================================
 
 void check_serial_command_timeout() {
   unsigned long currentTime = millis();
 
-  // ถ้า CAN ยังมี heartbeat ให้ CAN เป็นแหล่งควบคุมหลัก
+  // CAN heartbeat has priority over web/USB commands.
   if (
     serialMotorActive && !motorCanActive &&
     currentTime - lastSerialMotorCommandTime > SERIAL_COMMAND_TIMEOUT_MS) {
@@ -472,7 +512,101 @@ void check_serial_command_timeout() {
 }
 
 // =====================================================
-// XOR CHECKSUM
+// STATUS TEXT FOR OLED
+// =====================================================
+
+const char *get_status_text(int status) {
+  switch (status) {
+    case STOP:
+      return "STOP";
+
+    case FORWARD:
+      return "FWD";
+
+    case BACKWARD:
+      return "BACK";
+
+    case LEFT:
+      return "LEFT";
+
+    case RIGHT:
+      return "RIGHT";
+
+    case FORWARD_LEFT:
+      return "FWD-L";
+
+    case FORWARD_RIGHT:
+      return "FWD-R";
+
+    case BACKWARD_LEFT:
+      return "BACK-L";
+
+    case BACKWARD_RIGHT:
+      return "BACK-R";
+
+    case Release:
+      return "RELEASE";
+
+    case Clamp:
+      return "CLAMP";
+
+    default:
+      return "NO DATA";
+  }
+}
+
+// =====================================================
+// OLED DISPLAY
+// =====================================================
+
+void update_oled() {
+  oled.firstPage();
+
+  do {
+    oled.setFont(u8g2_font_6x10_tf);
+
+    // บรรทัด 1: แรงดัน
+    oled.setCursor(0, 10);
+    oled.print("V: ");
+    oled.print(inputVoltage, 2);
+    oled.print(" V");
+
+    // บรรทัด 2: Flame A1 และ A2
+    oled.setCursor(0, 23);
+    oled.print("F1:");
+    oled.print(flameAdcValue[0]);
+
+    oled.print(" F2:");
+    oled.print(flameAdcValue[1]);
+
+    // บรรทัด 3: Flame A3 และ A4
+    oled.setCursor(0, 36);
+    oled.print("F3:");
+    oled.print(flameAdcValue[2]);
+
+    oled.print(" F4:");
+    oled.print(flameAdcValue[3]);
+
+    // บรรทัด 4: Motor
+    oled.setCursor(0, 49);
+    oled.print("M:");
+    oled.print(get_status_text(lastMotorStatus));
+
+    oled.print(
+      motorCanActive ? " OK" : " TIMEOUT");
+
+    // บรรทัด 5: Arm
+    oled.setCursor(0, 62);
+    oled.print("A:");
+    oled.print(get_status_text(lastArmStatus));
+
+    oled.print(
+      armCanActive ? " OK" : " TIMEOUT");
+  } while (oled.nextPage());
+}
+
+// =====================================================
+// CHECKSUM AND USB TELEMETRY
 // =====================================================
 
 byte calculate_xor_checksum(const char *text) {
@@ -486,21 +620,9 @@ byte calculate_xor_checksum(const char *text) {
   return checksum;
 }
 
-// =====================================================
-// SEND USB TELEMETRY
-//
-// รูปแบบใหม่:
-// RB2,motor_code,motor_alive,arm_code,arm_alive,
-// voltage_mV,adc_value,sequence*CK
-//
-// ตัวอย่าง:
-// RB2,1,1,0,1,12450,510,25*AB
-// =====================================================
-
 void send_usb_telemetry() {
-  char payload[90];
+  char payload[128];
 
-  // ส่งเป็น millivolt เพื่อหลีกเลี่ยงปัญหา %f บน Arduino Uno
   unsigned long voltageMillivolts =
     static_cast<unsigned long>(
       (inputVoltage * 1000.0) + 0.5);
@@ -508,13 +630,17 @@ void send_usb_telemetry() {
   snprintf(
     payload,
     sizeof(payload),
-    "RB2,%d,%d,%d,%d,%lu,%d,%lu",
+    "RB3,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%lu",
     lastMotorStatus,
     motorCanActive ? 1 : 0,
     lastArmStatus,
     armCanActive ? 1 : 0,
     voltageMillivolts,
     voltageAdcValue,
+    flameAdcValue[0],
+    flameAdcValue[1],
+    flameAdcValue[2],
+    flameAdcValue[3],
     telemetrySequence);
 
   byte checksum = calculate_xor_checksum(payload);
@@ -539,16 +665,29 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(CAN_INT_PIN, INPUT);
-  pinMode(ANALOG_IN_PIN, INPUT);
+  pinMode(VOLTAGE_SENSOR_PIN, INPUT);
 
-  Serial.println();
-  Serial.println("CAN + Voltage receiver starting...");
+  for (byte i = 0; i < FLAME_SENSOR_COUNT; i++) {
+    pinMode(FLAME_SENSOR_PINS[i], INPUT);
+  }
+
+  // เริ่ม OLED
+  oled.begin();
+
+  oled.firstPage();
+
+  do {
+    oled.setFont(u8g2_font_6x10_tf);
+    oled.drawStr(18, 28, "FIREBOT SYSTEM");
+    oled.drawStr(16, 44, "Starting...");
+  } while (oled.nextPage());
 
   motor_stop();
   arm_stop();
 
-  // ถ้า Crystal เขียนว่า 16.000
-  // เปลี่ยน MCP_8MHZ เป็น MCP_16MHZ
+  Serial.println("Initializing MCP2515...");
+
+  // เปลี่ยนเป็น MCP_16MHZ ถ้า Crystal เขียน 16.000
   while (
     CAN0.begin(
       MCP_ANY,
@@ -556,19 +695,20 @@ void setup() {
       MCP_8MHZ)
     != CAN_OK) {
     Serial.println("MCP2515 initialization failed");
-    Serial.println("Check wiring and crystal");
-
     delay(1000);
   }
 
   CAN0.setMode(MCP_NORMAL);
 
-  Serial.println("MCP2515 initialized");
   Serial.println("CAN receiver ready");
 
   read_voltage_sensor();
+  read_flame_sensors();
 
-  lastTelemetryTime = millis();
+  lastSensorTime = millis();
+  lastOledTime = millis();
+
+  update_oled();
 }
 
 // =====================================================
@@ -576,47 +716,33 @@ void setup() {
 // =====================================================
 
 void loop() {
-  // รับคำสั่งจากหน้าเว็บผ่าน Raspberry Pi → USB Serial
+  // รับคำสั่งจากหน้าเว็บผ่าน Raspberry Pi -> USB Serial
   process_serial_commands();
 
-  // -------------------------------------------------
-  // อ่านข้อความ CAN ที่ค้างอยู่ทั้งหมด
-  // -------------------------------------------------
+  // รับ CAN ตลอดเวลา
+  read_can_bus();
 
-  while (CAN0.checkReceive() == CAN_MSGAVAIL) {
-    unsigned long receivedId = 0;
-    byte dataLength = 0;
-    byte receivedData[8];
-
-    byte readResult = CAN0.readMsgBuf(
-      &receivedId,
-      &dataLength,
-      receivedData);
-
-    if (readResult == CAN_OK) {
-      process_can_message(
-        receivedId,
-        dataLength,
-        receivedData);
-    } else {
-      Serial.println("CAN ERROR: Cannot read message");
-    }
-  }
-
+  // ตรวจ CAN Timeout
   check_can_timeout();
   check_serial_command_timeout();
 
-  // -------------------------------------------------
-  // อ่านแรงดันและส่งไป Raspberry Pi ทุก 100 ms
-  // -------------------------------------------------
-
   unsigned long currentTime = millis();
 
+  // อ่าน Sensor และส่ง Raspberry Pi ทุก 100 ms
   if (
-    currentTime - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
-    lastTelemetryTime = currentTime;
+    currentTime - lastSensorTime >= SENSOR_INTERVAL_MS) {
+    lastSensorTime = currentTime;
 
     read_voltage_sensor();
+    read_flame_sensors();
     send_usb_telemetry();
+  }
+
+  // อัปเดต OLED ทุก 250 ms
+  if (
+    currentTime - lastOledTime >= OLED_INTERVAL_MS) {
+    lastOledTime = currentTime;
+
+    update_oled();
   }
 }
