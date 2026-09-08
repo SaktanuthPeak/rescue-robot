@@ -83,7 +83,10 @@
 				IR flame sensors 4 ทิศ · ค่าจาก Arduino ผ่าน serial
 			</p>
 		</div>
-		<Button variant="ghost" size="sm" href="/">← หน้าหลัก</Button>
+		<div class="flex items-center gap-1">
+			<Button variant="ghost" size="sm" href="/control/">ควบคุมหุ่นยนต์</Button>
+			<Button variant="ghost" size="sm" href="/">← หน้าหลัก</Button>
+		</div>
 	</header>
 
 	<TelemetryStatusBar

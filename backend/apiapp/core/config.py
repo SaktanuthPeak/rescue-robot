@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     TELEMETRY_MIN_BROADCAST_INTERVAL_MS: int = 50
     TELEMETRY_STALE_AFTER_MS: int = 1500
 
+    # receiver-canbus USB serial control
+    ROBOT_SERIAL_ENABLED: bool = False
+    ROBOT_SERIAL_PORT: str = "/dev/ttyACM0"
+    ROBOT_SERIAL_BAUDRATE: int = 115200
+    ROBOT_SERIAL_TIMEOUT_S: float = 1.0
+    ROBOT_SERIAL_BOOT_DELAY_S: float = 2.0
+    ROBOT_SERIAL_RECONNECT_S: float = 2.0
+
     # camera / video streaming (Raspberry Pi & Mock)
     CAMERA_SOURCE: Literal["auto", "v4l2", "picam", "mock"] = "auto"
     CAMERA_DEVICE: str = "/dev/video0"

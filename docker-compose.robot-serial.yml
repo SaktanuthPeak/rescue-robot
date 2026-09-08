@@ -1,0 +1,17 @@
+# USB serial override for firmware/receiver-canbus.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml \
+#     -f docker-compose.robot-serial.yml up -d --build
+
+services:
+  backend:
+    environment:
+      ROBOT_SERIAL_ENABLED: "True"
+      # The receiver-canbus Arduino speaks RB1, not the flame FB1 protocol.
+      # Keep the flame source mocked so it cannot open the same USB port.
+      TELEMETRY_SOURCE: "mock"
+    devices:
+      - "${ROBOT_SERIAL_PORT:-/dev/ttyACM0}:${ROBOT_SERIAL_PORT:-/dev/ttyACM0}"
+    group_add:
+      - "${SERIAL_GROUP_ID:-20}"
+    stop_grace_period: 20s

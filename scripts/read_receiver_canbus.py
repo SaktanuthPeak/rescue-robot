@@ -2,7 +2,7 @@
 """Read RB1 telemetry from firmware/receiver-canbus over USB serial.
 
 The firmware emits:
-    RB1,motor_code,motor_alive,arm_code,arm_alive,seq*CK
+    RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,adc_value,seq*CK
 
 Human-readable Arduino log lines are intentionally ignored.  This makes the
 reader safe to use while the receiver is printing boot and CAN diagnostics.
@@ -41,13 +41,16 @@ class ReceiverTelemetry:
     arm_code: int
     arm_status: str
     arm_alive: bool
+    battery_millivolts: int
+    battery_volts: float
+    battery_adc: int
     sequence: int
 
 
 def parse_line(raw: bytes) -> ReceiverTelemetry | None:
     """Parse one RB1 line and reject noise or a bad XOR checksum."""
     text = raw.decode("ascii", errors="ignore").strip()
-    if not text.startswith("RB1,"):
+    if not text.startswith(("RB1,", "RB2,")):
         return None
 
     payload, separator, checksum_text = text.partition("*")
@@ -66,7 +69,9 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         return None
 
     fields = payload.split(",")
-    if len(fields) != 6:
+    if fields[0] == "RB1" and len(fields) != 6:
+        return None
+    if fields[0] == "RB2" and len(fields) != 8:
         return None
 
     try:
@@ -74,7 +79,14 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         motor_alive = int(fields[2])
         arm_code = int(fields[3])
         arm_alive = int(fields[4])
-        sequence = int(fields[5])
+        if fields[0] == "RB2":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            sequence = int(fields[7])
+        else:
+            battery_millivolts = 0
+            battery_adc = 0
+            sequence = int(fields[5])
     except ValueError:
         return None
 
@@ -82,7 +94,12 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         return None
     if arm_code not in STATUS_NAMES and arm_code != -1:
         return None
-    if motor_alive not in (0, 1) or arm_alive not in (0, 1):
+    if (
+        motor_alive not in (0, 1)
+        or arm_alive not in (0, 1)
+        or battery_millivolts < 0
+        or battery_adc < 0
+    ):
         return None
     if sequence < 0:
         return None
@@ -94,6 +111,9 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         arm_code=arm_code,
         arm_status=STATUS_NAMES.get(arm_code, "NO_DATA"),
         arm_alive=bool(arm_alive),
+        battery_millivolts=battery_millivolts,
+        battery_volts=round(battery_millivolts / 1000, 3),
+        battery_adc=battery_adc,
         sequence=sequence,
     )
 
@@ -125,6 +145,7 @@ def main() -> int:
                 arm_link = "CAN OK" if telemetry.arm_alive else "CAN TIMEOUT"
                 print(
                     f"seq={telemetry.sequence:>6} | "
+                    f"BAT={telemetry.battery_volts:>5.2f} V | "
                     f"MOTOR={telemetry.motor_status:<14} ({motor_link}) | "
                     f"ARM={telemetry.arm_status:<14} ({arm_link})",
                     flush=True,

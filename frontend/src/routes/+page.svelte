@@ -15,6 +15,9 @@
 		<Button href="/monitor/" class="gap-2">
 			<span>Open FireBot Monitor & Camera</span>
 		</Button>
+		<Button href="/control/" variant="secondary" class="gap-2">
+			<span>Open Robot Control</span>
+		</Button>
 	</div>
 	<div class="mb-6">
 		{#if authStore.isAuthenticated}

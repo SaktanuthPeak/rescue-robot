@@ -3,23 +3,34 @@
 #include <stdio.h>
 
 // =====================================================
-// CAN BUS CONFIGURATION
+// CAN CONFIGURATION
 // =====================================================
 
 const byte CAN_CS_PIN = 10;
 const byte CAN_INT_PIN = 2;
 
-// CAN ID ต้องตรงกับ Arduino ตัวส่ง
 const unsigned long CAN_ID_MOTOR = 0x100;
 const unsigned long CAN_ID_ARM = 0x101;
 
-// หากไม่ได้รับข้อมูลเกิน 300 ms ให้หยุด
 const unsigned long CAN_TIMEOUT_MS = 300;
-
-// ส่ง snapshot สถานะผ่าน USB Serial ให้ Raspberry Pi ทุก 100 ms
-const unsigned long SERIAL_TELEMETRY_PERIOD_MS = 100;
+const unsigned long TELEMETRY_INTERVAL_MS = 100;
 
 MCP_CAN CAN0(CAN_CS_PIN);
+
+// =====================================================
+// VOLTAGE SENSOR CONFIGURATION
+// อ้างอิงค่าจาก Last Minute Engineers
+// =====================================================
+
+#define ANALOG_IN_PIN A0
+
+const float R1 = 30000.0;
+const float R2 = 7500.0;
+const float REF_VOLTAGE = 5.0;
+
+int voltageAdcValue = 0;
+float adcVoltage = 0.0;
+float inputVoltage = 0.0;
 
 // =====================================================
 // STATUS
@@ -41,130 +52,103 @@ enum PS2_Status : uint8_t {
 };
 
 // =====================================================
-// ตัวแปรสำหรับตรวจสอบสถานะ CAN
+// CAN STATE
 // =====================================================
-
-unsigned long lastMotorMessageTime = 0;
-unsigned long lastArmMessageTime = 0;
-
-bool motorCanActive = false;
-bool armCanActive = false;
 
 int lastMotorStatus = -1;
 int lastArmStatus = -1;
 
-unsigned long lastSerialTelemetryTime = 0;
-unsigned long serialTelemetrySequence = 0;
+bool motorCanActive = false;
+bool armCanActive = false;
+
+unsigned long lastMotorMessageTime = 0;
+unsigned long lastArmMessageTime = 0;
 
 // =====================================================
-// ฟังก์ชันมอเตอร์รถ
+// TELEMETRY STATE
+// =====================================================
+
+unsigned long telemetrySequence = 0;
+unsigned long lastTelemetryTime = 0;
+
+// =====================================================
+// ฟังก์ชันควบคุมมอเตอร์
 //
-// ตอนนี้แสดงผลผ่าน Serial เพื่อทดสอบ CAN
-// ให้นำคำสั่ง digitalWrite/analogWrite ของจริงมาใส่แทน
+// นำโค้ดควบคุมมอเตอร์จริงมาใส่ในฟังก์ชันเหล่านี้
 // =====================================================
 
 void motor_forward() {
-  Serial.println("MOTOR -> FORWARD");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: FORWARD");
 }
 
 void motor_backward() {
-  Serial.println("MOTOR -> BACKWARD");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: BACKWARD");
 }
 
 void motor_slide_left() {
-  Serial.println("MOTOR -> SLIDE LEFT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: SLIDE LEFT");
 }
 
 void motor_slide_right() {
-  Serial.println("MOTOR -> SLIDE RIGHT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: SLIDE RIGHT");
 }
 
 void motor_forward_left() {
-  Serial.println("MOTOR -> FORWARD LEFT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: FORWARD LEFT");
 }
 
 void motor_forward_right() {
-  Serial.println("MOTOR -> FORWARD RIGHT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: FORWARD RIGHT");
 }
 
 void motor_backward_left() {
-  Serial.println("MOTOR -> BACKWARD LEFT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: BACKWARD LEFT");
 }
 
 void motor_backward_right() {
-  Serial.println("MOTOR -> BACKWARD RIGHT");
-
-  // ใส่โค้ดควบคุมมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: BACKWARD RIGHT");
 }
 
 void motor_stop() {
-  Serial.println("MOTOR -> STOP");
-
-  // ใส่โค้ดหยุดมอเตอร์จริงตรงนี้
+  Serial.println("MOTOR: STOP");
 }
 
 // =====================================================
-// ฟังก์ชันแขนกล
+// ฟังก์ชันควบคุมแขน
+//
+// นำโค้ดควบคุมแขนจริงมาใส่ในฟังก์ชันเหล่านี้
 // =====================================================
 
 void arm_forward() {
-  Serial.println("ARM -> FORWARD");
-
-  // ใส่โค้ดควบคุมแขนจริงตรงนี้
+  Serial.println("ARM: FORWARD");
 }
 
 void arm_backward() {
-  Serial.println("ARM -> BACKWARD");
-
-  // ใส่โค้ดควบคุมแขนจริงตรงนี้
+  Serial.println("ARM: BACKWARD");
 }
 
 void arm_turn_left() {
-  Serial.println("ARM -> TURN LEFT");
-
-  // ใส่โค้ดควบคุมแขนจริงตรงนี้
+  Serial.println("ARM: TURN LEFT");
 }
 
 void arm_turn_right() {
-  Serial.println("ARM -> TURN RIGHT");
-
-  // ใส่โค้ดควบคุมแขนจริงตรงนี้
+  Serial.println("ARM: TURN RIGHT");
 }
 
 void arm_stop() {
-  Serial.println("ARM -> STOP");
-
-  // ใส่โค้ดหยุดแขนจริงตรงนี้
+  Serial.println("ARM: STOP");
 }
 
 void gripper_release() {
-  Serial.println("GRIPPER -> RELEASE");
-
-  // ใส่โค้ดปล่อย Gripper จริงตรงนี้
+  Serial.println("GRIPPER: RELEASE");
 }
 
 void gripper_clamp() {
-  Serial.println("GRIPPER -> CLAMP");
-
-  // ใส่โค้ดหนีบ Gripper จริงตรงนี้
+  Serial.println("GRIPPER: CLAMP");
 }
 
 // =====================================================
-// นำสถานะไปควบคุมมอเตอร์
+// APPLY MOTOR STATUS
 // =====================================================
 
 void apply_motor_from_status(PS2_Status current) {
@@ -209,7 +193,7 @@ void apply_motor_from_status(PS2_Status current) {
 }
 
 // =====================================================
-// นำสถานะไปควบคุมแขน
+// APPLY ARM STATUS
 // =====================================================
 
 void apply_arm_from_status(PS2_Status current) {
@@ -250,191 +234,110 @@ void apply_arm_from_status(PS2_Status current) {
 }
 
 // =====================================================
-// ตรวจสอบสถานะมอเตอร์
+// VALIDATE STATUS
 // =====================================================
 
 bool is_valid_motor_status(byte value) {
-  switch (value) {
-    case STOP:
-    case FORWARD:
-    case BACKWARD:
-    case LEFT:
-    case RIGHT:
-    case FORWARD_LEFT:
-    case FORWARD_RIGHT:
-    case BACKWARD_LEFT:
-    case BACKWARD_RIGHT:
-      return true;
-
-    default:
-      return false;
-  }
+  return value <= BACKWARD_RIGHT;
 }
-
-// =====================================================
-// ตรวจสอบสถานะแขน
-// =====================================================
 
 bool is_valid_arm_status(byte value) {
-  switch (value) {
-    case STOP:
-    case FORWARD:
-    case BACKWARD:
-    case LEFT:
-    case RIGHT:
-    case FORWARD_LEFT:
-    case FORWARD_RIGHT:
-    case BACKWARD_LEFT:
-    case BACKWARD_RIGHT:
-    case Release:
-    case Clamp:
-      return true;
-
-    default:
-      return false;
-  }
+  return value <= Clamp;
 }
 
 // =====================================================
-// Telemetry ไป Raspberry Pi ผ่าน USB Serial
-// รูปแบบ: RB1,motor_code,motor_alive,arm_code,arm_alive,seq*CK\n
-// CK คือ XOR ของทุกตัวอักษรก่อนเครื่องหมาย *
+// READ VOLTAGE SENSOR
+// สูตรจากเว็บที่ให้มา
 // =====================================================
 
-void emit_serial_telemetry() {
-  unsigned long now = millis();
+void read_voltage_sensor() {
+  // อ่าน ADC จากขา A0
+  voltageAdcValue = analogRead(ANALOG_IN_PIN);
 
-  if (now - lastSerialTelemetryTime < SERIAL_TELEMETRY_PERIOD_MS) {
-    return;
-  }
-  lastSerialTelemetryTime = now;
+  // แรงดันที่ขา ADC
+  adcVoltage =
+    (voltageAdcValue * REF_VOLTAGE) / 1024.0;
 
-  char payload[96];
-  snprintf(
-    payload,
-    sizeof(payload),
-    "RB1,%d,%d,%d,%d,%lu",
-    lastMotorStatus,
-    motorCanActive ? 1 : 0,
-    lastArmStatus,
-    armCanActive ? 1 : 0,
-    serialTelemetrySequence++
-  );
-
-  byte checksum = 0;
-  for (size_t i = 0; payload[i] != '\0'; i++) {
-    checksum ^= static_cast<byte>(payload[i]);
-  }
-
-  Serial.print(payload);
-  Serial.print('*');
-  if (checksum < 0x10) {
-    Serial.print('0');
-  }
-  Serial.println(checksum, HEX);
+  // คำนวณแรงดันก่อนผ่าน Voltage Divider
+  inputVoltage =
+    adcVoltage * (R1 + R2) / R2;
 }
 
 // =====================================================
-// ประมวลผลข้อความ CAN
+// PROCESS CAN MESSAGE
 // =====================================================
 
 void process_can_message(
   unsigned long canId,
   byte dataLength,
   byte *receivedData) {
-  // ในระบบนี้ต้องมีข้อมูลอย่างน้อย 1 byte
   if (dataLength < 1) {
-    Serial.println("ERROR -> Empty CAN frame");
+    Serial.println("CAN ERROR: Empty frame");
     return;
   }
 
   byte receivedStatus = receivedData[0];
 
-  // Serial.print("Received ID: 0x");
-  // Serial.print(canId, HEX);
-
-  // Serial.print(" | Status byte: ");
-  // Serial.println(receivedStatus);
-
   // -------------------------------------------------
-  // CAN ID สำหรับมอเตอร์
+  // Motor
   // -------------------------------------------------
 
   if (canId == CAN_ID_MOTOR) {
     if (!is_valid_motor_status(receivedStatus)) {
-      Serial.println("ERROR -> Invalid motor status");
+      Serial.println("CAN ERROR: Invalid motor status");
 
       motor_stop();
-
       motorCanActive = false;
       lastMotorStatus = -1;
 
       return;
     }
 
-    // อัปเดตเวลา แม้ว่าสถานะยังเหมือนเดิม
     lastMotorMessageTime = millis();
     motorCanActive = true;
 
-    // เรียกฟังก์ชันเมื่อสถานะเปลี่ยนเท่านั้น
     if (receivedStatus != lastMotorStatus) {
       lastMotorStatus = receivedStatus;
 
-      PS2_Status currentStatus =
-        static_cast<PS2_Status>(receivedStatus);
-
-      apply_motor_from_status(currentStatus);
+      apply_motor_from_status(
+        static_cast<PS2_Status>(receivedStatus));
     }
   }
 
   // -------------------------------------------------
-  // CAN ID สำหรับแขน
+  // Arm
   // -------------------------------------------------
 
   else if (canId == CAN_ID_ARM) {
     if (!is_valid_arm_status(receivedStatus)) {
-      Serial.println("ERROR -> Invalid arm status");
+      Serial.println("CAN ERROR: Invalid arm status");
 
       arm_stop();
-
       armCanActive = false;
       lastArmStatus = -1;
 
       return;
     }
 
-    // อัปเดตเวลา แม้ว่าสถานะยังเหมือนเดิม
     lastArmMessageTime = millis();
     armCanActive = true;
 
-    // เรียกฟังก์ชันเมื่อสถานะเปลี่ยนเท่านั้น
     if (receivedStatus != lastArmStatus) {
       lastArmStatus = receivedStatus;
 
-      PS2_Status currentStatus =
-        static_cast<PS2_Status>(receivedStatus);
-
-      apply_arm_from_status(currentStatus);
+      apply_arm_from_status(
+        static_cast<PS2_Status>(receivedStatus));
     }
-  }
-
-  // -------------------------------------------------
-  // CAN ID ที่ไม่ได้ใช้งาน
-  // -------------------------------------------------
-
-  else {
-    Serial.println("Unknown CAN ID");
   }
 }
 
 // =====================================================
-// ตรวจสอบ Timeout
+// CHECK CAN TIMEOUT
 // =====================================================
 
 void check_can_timeout() {
   unsigned long currentTime = millis();
 
-  // มอเตอร์ไม่ได้รับข้อมูลเกิน 300 ms
   if (
     motorCanActive && currentTime - lastMotorMessageTime > CAN_TIMEOUT_MS) {
     motorCanActive = false;
@@ -442,10 +345,9 @@ void check_can_timeout() {
 
     motor_stop();
 
-    Serial.println("WARNING -> Motor CAN timeout");
+    Serial.println("CAN WARNING: Motor timeout");
   }
 
-  // แขนไม่ได้รับข้อมูลเกิน 300 ms
   if (
     armCanActive && currentTime - lastArmMessageTime > CAN_TIMEOUT_MS) {
     armCanActive = false;
@@ -453,8 +355,68 @@ void check_can_timeout() {
 
     arm_stop();
 
-    Serial.println("WARNING -> Arm CAN timeout");
+    Serial.println("CAN WARNING: Arm timeout");
   }
+}
+
+// =====================================================
+// XOR CHECKSUM
+// =====================================================
+
+byte calculate_xor_checksum(const char *text) {
+  byte checksum = 0;
+
+  while (*text != '\0') {
+    checksum ^= static_cast<byte>(*text);
+    text++;
+  }
+
+  return checksum;
+}
+
+// =====================================================
+// SEND USB TELEMETRY
+//
+// รูปแบบใหม่:
+// RB2,motor_code,motor_alive,arm_code,arm_alive,
+// voltage_mV,adc_value,sequence*CK
+//
+// ตัวอย่าง:
+// RB2,1,1,0,1,12450,510,25*AB
+// =====================================================
+
+void send_usb_telemetry() {
+  char payload[90];
+
+  // ส่งเป็น millivolt เพื่อหลีกเลี่ยงปัญหา %f บน Arduino Uno
+  unsigned long voltageMillivolts =
+    static_cast<unsigned long>(
+      (inputVoltage * 1000.0) + 0.5);
+
+  snprintf(
+    payload,
+    sizeof(payload),
+    "RB2,%d,%d,%d,%d,%lu,%d,%lu",
+    lastMotorStatus,
+    motorCanActive ? 1 : 0,
+    lastArmStatus,
+    armCanActive ? 1 : 0,
+    voltageMillivolts,
+    voltageAdcValue,
+    telemetrySequence);
+
+  byte checksum = calculate_xor_checksum(payload);
+
+  Serial.print(payload);
+  Serial.print('*');
+
+  if (checksum < 0x10) {
+    Serial.print('0');
+  }
+
+  Serial.println(checksum, HEX);
+
+  telemetrySequence++;
 }
 
 // =====================================================
@@ -465,19 +427,16 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(CAN_INT_PIN, INPUT);
+  pinMode(ANALOG_IN_PIN, INPUT);
 
-  // เริ่มต้นในสถานะหยุด
+  Serial.println();
+  Serial.println("CAN + Voltage receiver starting...");
+
   motor_stop();
   arm_stop();
 
-  Serial.println();
-  Serial.println("============================");
-  Serial.println("CAN BUS RECEIVER");
-  Serial.println("============================");
-  Serial.println("Initializing MCP2515...");
-
-  // ถ้า Crystal เป็น 16 MHz ให้เปลี่ยน MCP_8MHZ
-  // เป็น MCP_16MHZ
+  // ถ้า Crystal เขียนว่า 16.000
+  // เปลี่ยน MCP_8MHZ เป็น MCP_16MHZ
   while (
     CAN0.begin(
       MCP_ANY,
@@ -485,17 +444,19 @@ void setup() {
       MCP_8MHZ)
     != CAN_OK) {
     Serial.println("MCP2515 initialization failed");
-    Serial.println("Retrying in 1 second...");
+    Serial.println("Check wiring and crystal");
 
     delay(1000);
   }
 
-  // Normal Mode สำหรับรับข้อมูลจริงและตอบ ACK
   CAN0.setMode(MCP_NORMAL);
 
-  Serial.println("MCP2515 initialized successfully");
+  Serial.println("MCP2515 initialized");
   Serial.println("CAN receiver ready");
-  Serial.println("============================");
+
+  read_voltage_sensor();
+
+  lastTelemetryTime = millis();
 }
 
 // =====================================================
@@ -503,7 +464,10 @@ void setup() {
 // =====================================================
 
 void loop() {
-  // อ่านข้อความทั้งหมดที่ค้างอยู่ใน MCP2515
+  // -------------------------------------------------
+  // อ่านข้อความ CAN ที่ค้างอยู่ทั้งหมด
+  // -------------------------------------------------
+
   while (CAN0.checkReceive() == CAN_MSGAVAIL) {
     unsigned long receivedId = 0;
     byte dataLength = 0;
@@ -520,13 +484,23 @@ void loop() {
         dataLength,
         receivedData);
     } else {
-      Serial.println("ERROR -> Cannot read CAN message");
+      Serial.println("CAN ERROR: Cannot read message");
     }
   }
 
-  // ตรวจสอบว่าข้อมูลขาดหายหรือไม่
   check_can_timeout();
 
-  // ส่งสถานะล่าสุดให้ Raspberry Pi แม้ไม่มี CAN frame ใหม่
-  emit_serial_telemetry();
+  // -------------------------------------------------
+  // อ่านแรงดันและส่งไป Raspberry Pi ทุก 100 ms
+  // -------------------------------------------------
+
+  unsigned long currentTime = millis();
+
+  if (
+    currentTime - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
+    lastTelemetryTime = currentTime;
+
+    read_voltage_sensor();
+    send_usb_telemetry();
+  }
 }

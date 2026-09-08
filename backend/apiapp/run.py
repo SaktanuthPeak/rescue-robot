@@ -13,6 +13,7 @@ from .core.config import get_settings
 from .core.router import init_routers
 from .infrastructure.camera_service import camera_service
 from .infrastructure.database import close_beanie, init_beanie
+from .infrastructure.receiver_canbus import receiver_canbus_service
 from .infrastructure.telemetry_hub import telemetry_hub
 from .middlewares.base import init_all_middlewares
 
@@ -81,11 +82,13 @@ async def lifespan(app: FastAPI):
     use_route_names_as_operation_ids(app)
     add_pagination(app)
     await telemetry_hub.start(settings)
+    await receiver_canbus_service.start(settings)
     await camera_service.start(settings)
     try:
         yield
     finally:
         await camera_service.stop()
+        await receiver_canbus_service.stop()
         await telemetry_hub.stop()
         await close_beanie()
 
