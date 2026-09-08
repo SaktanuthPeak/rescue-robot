@@ -1,6 +1,6 @@
 """USB serial transport for the receiver-canbus Arduino.
 
-The receiver emits one RB1 snapshot every 100 ms:
+The receiver emits one RB2 snapshot every 100 ms:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,adc_value,seq*CK
 
 This transport is intentionally separate from flame_serial.py.  The two devices use
@@ -49,7 +49,7 @@ class ReceiverSample:
 
 
 def parse_line(raw: bytes) -> ReceiverSample | None:
-    """Decode one RB1 line and reject noise, malformed fields, or bad checksum."""
+    """Decode one RB1/RB2 line and reject noise, malformed fields, or bad checksum."""
     text = raw.decode("ascii", errors="ignore").strip()
     if not text.startswith(("RB1,", "RB2,")):
         return None

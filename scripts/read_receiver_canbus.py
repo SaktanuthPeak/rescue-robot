@@ -48,7 +48,7 @@ class ReceiverTelemetry:
 
 
 def parse_line(raw: bytes) -> ReceiverTelemetry | None:
-    """Parse one RB1 line and reject noise or a bad XOR checksum."""
+    """Parse one RB1/RB2 line and reject noise or a bad XOR checksum."""
     text = raw.decode("ascii", errors="ignore").strip()
     if not text.startswith(("RB1,", "RB2,")):
         return None

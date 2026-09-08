@@ -14,6 +14,7 @@ const unsigned long CAN_ID_ARM = 0x101;
 
 const unsigned long CAN_TIMEOUT_MS = 300;
 const unsigned long TELEMETRY_INTERVAL_MS = 100;
+const unsigned long SERIAL_COMMAND_TIMEOUT_MS = 400;
 
 MCP_CAN CAN0(CAN_CS_PIN);
 
@@ -63,6 +64,11 @@ bool armCanActive = false;
 
 unsigned long lastMotorMessageTime = 0;
 unsigned long lastArmMessageTime = 0;
+
+bool serialMotorActive = false;
+bool serialArmActive = false;
+unsigned long lastSerialMotorCommandTime = 0;
+unsigned long lastSerialArmCommandTime = 0;
 
 // =====================================================
 // TELEMETRY STATE
@@ -267,6 +273,85 @@ void read_voltage_sensor() {
 // PROCESS CAN MESSAGE
 // =====================================================
 
+// =====================================================
+// PROCESS COMMAND FROM RASPBERRY PI
+// รูปแบบคำสั่ง: CMD:MOTOR:<code>, CMD:ARM:<code>, CMD:ALL:0
+// =====================================================
+
+void process_serial_command(String line) {
+  line.trim();
+  if (line.length() == 0) {
+    return;
+  }
+
+  if (line.startsWith("CMD:ALL:")) {
+    int code = line.substring(8).toInt();
+    if (code != STOP) {
+      Serial.println("CMD ERROR: ALL only supports STOP");
+      return;
+    }
+
+    lastMotorStatus = STOP;
+    lastArmStatus = STOP;
+    serialMotorActive = false;
+    serialArmActive = false;
+    apply_motor_from_status(STOP);
+    apply_arm_from_status(STOP);
+    Serial.println("CMD ACK: ALL STOP");
+    return;
+  }
+
+  if (line.startsWith("CMD:MOTOR:")) {
+    int code = line.substring(10).toInt();
+    if (code < STOP || code > BACKWARD_RIGHT) {
+      Serial.println("CMD ERROR: Invalid motor status");
+      return;
+    }
+
+    lastMotorStatus = code;
+    serialMotorActive = code != STOP;
+    lastSerialMotorCommandTime = millis();
+    apply_motor_from_status(static_cast<PS2_Status>(code));
+    Serial.println("CMD ACK: MOTOR");
+    return;
+  }
+
+  if (line.startsWith("CMD:ARM:")) {
+    int code = line.substring(8).toInt();
+    if (code < STOP || code > Clamp) {
+      Serial.println("CMD ERROR: Invalid arm status");
+      return;
+    }
+
+    lastArmStatus = code;
+    serialArmActive = code >= FORWARD && code <= BACKWARD_RIGHT;
+    lastSerialArmCommandTime = millis();
+    apply_arm_from_status(static_cast<PS2_Status>(code));
+    Serial.println("CMD ACK: ARM");
+    return;
+  }
+
+  Serial.println("CMD ERROR: Unknown command");
+}
+
+void process_serial_commands() {
+  static String line;
+
+  while (Serial.available() > 0) {
+    char character = static_cast<char>(Serial.read());
+
+    if (character == '\n') {
+      process_serial_command(line);
+      line = "";
+    } else if (character != '\r') {
+      line += character;
+      if (line.length() > 32) {
+        line = "";
+      }
+    }
+  }
+}
+
 void process_can_message(
   unsigned long canId,
   byte dataLength,
@@ -356,6 +441,33 @@ void check_can_timeout() {
     arm_stop();
 
     Serial.println("CAN WARNING: Arm timeout");
+  }
+}
+
+// =====================================================
+// SERIAL COMMAND TIMEOUT
+// =====================================================
+
+void check_serial_command_timeout() {
+  unsigned long currentTime = millis();
+
+  // ถ้า CAN ยังมี heartbeat ให้ CAN เป็นแหล่งควบคุมหลัก
+  if (
+    serialMotorActive && !motorCanActive &&
+    currentTime - lastSerialMotorCommandTime > SERIAL_COMMAND_TIMEOUT_MS) {
+    serialMotorActive = false;
+    lastMotorStatus = STOP;
+    motor_stop();
+    Serial.println("CMD WARNING: Motor serial timeout");
+  }
+
+  if (
+    serialArmActive && !armCanActive &&
+    currentTime - lastSerialArmCommandTime > SERIAL_COMMAND_TIMEOUT_MS) {
+    serialArmActive = false;
+    lastArmStatus = STOP;
+    arm_stop();
+    Serial.println("CMD WARNING: Arm serial timeout");
   }
 }
 
@@ -464,6 +576,9 @@ void setup() {
 // =====================================================
 
 void loop() {
+  // รับคำสั่งจากหน้าเว็บผ่าน Raspberry Pi → USB Serial
+  process_serial_commands();
+
   // -------------------------------------------------
   // อ่านข้อความ CAN ที่ค้างอยู่ทั้งหมด
   // -------------------------------------------------
@@ -489,6 +604,7 @@ void loop() {
   }
 
   check_can_timeout();
+  check_serial_command_timeout();
 
   // -------------------------------------------------
   // อ่านแรงดันและส่งไป Raspberry Pi ทุก 100 ms

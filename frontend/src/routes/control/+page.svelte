@@ -9,6 +9,7 @@
 		ArrowUp,
 		ArrowUpLeft,
 		ArrowUpRight,
+		Battery,
 		CircleStop,
 		Grip,
 		Link2,
@@ -34,6 +35,7 @@
 
 	const isOnline = $derived(status.state === 'streaming');
 	const statusAge = $derived(status.last_frame_age_ms > 0 ? `${status.last_frame_age_ms} ms ago` : 'waiting');
+	const batteryLabel = $derived(status.battery_millivolts > 0 ? `${status.battery_volts.toFixed(2)} V` : '—');
 	const linkLabel = $derived(
 		status.state === 'streaming'
 			? 'Receiver online'
@@ -164,6 +166,7 @@
 				<span>{status.port} · {status.baudrate} baud</span>
 			</div>
 		</div>
+		<div class="status-stat battery-stat"><span>battery sensor</span><strong><Battery size={15} /> {batteryLabel}</strong><small>ADC {status.battery_adc}</small></div>
 		<div class="status-stat"><span>last frame</span><strong>{statusAge}</strong></div>
 		<div class="status-stat"><span>sequence</span><strong>{status.sequence}</strong></div>
 		<div class="status-stat"><span>parse errors</span><strong class={status.parse_errors ? 'warn' : ''}>{status.parse_errors}</strong></div>
@@ -250,7 +253,7 @@
 	.refresh-button:disabled { opacity: .55; }
 	.spin { animation: spin .8s linear infinite; }
 	.status-rail, .panel, .bottom-bar { border: 1px solid #302f2a; background: #171716; box-shadow: 0 18px 50px rgb(0 0 0 / 20%); }
-	.status-rail { max-width: 1180px; margin: 0 auto 1rem; padding: .7rem; display: grid; grid-template-columns: minmax(220px, 1.8fr) repeat(3, 1fr); align-items: center; gap: .35rem; border-radius: .65rem; }
+	.status-rail { max-width: 1180px; margin: 0 auto 1rem; padding: .7rem; display: grid; grid-template-columns: minmax(220px, 1.7fr) repeat(4, 1fr); align-items: center; gap: .35rem; border-radius: .65rem; }
 	.connection-state { display: flex; gap: .65rem; align-items: center; padding: .35rem .55rem; color: #a4a097; }
 	.connection-state.online { color: #d8b26a; }
 	.connection-state.offline { color: #b7aaa0; }
@@ -258,6 +261,9 @@
 	.connection-state span { display: block; margin-top: .15rem; font-size: .72rem; color: #8c8981; font-variant-numeric: tabular-nums; }
 	.status-stat { border-left: 1px solid #302f2a; padding: .25rem .75rem; }
 	.status-stat strong { color: #ece6dc; display: block; margin-top: .2rem; font-family: ui-monospace, SFMono-Regular, monospace; font-size: .85rem; font-variant-numeric: tabular-nums; }
+	.status-stat strong :global(svg) { display: inline; vertical-align: -2px; color: #d19742; }
+	.status-stat small { display: block; color: #77736b; font-size: .64rem; margin-top: .2rem; }
+	.battery-stat strong { color: #d9b06a; }
 	.status-stat .warn { color: #dc895e; }
 	.notice { max-width: 1180px; margin: 0 auto 1rem; border: 1px solid #39362e; border-radius: .5rem; color: #bfb8ac; display: flex; align-items: center; gap: .5rem; padding: .7rem .8rem; font-size: .82rem; }
 	.notice.error { color: #efaa8a; border-color: #744a3d; background: #2b1916; }

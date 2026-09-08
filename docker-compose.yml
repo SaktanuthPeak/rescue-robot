@@ -6,8 +6,8 @@
 # browser traffic on ${WEB_PORT} and proxies /v1 to the backend, so the tablet only ever
 # talks to one origin.
 #
-# With a real Arduino attached, add the serial override:
-#   docker compose -f docker-compose.yml -f docker-compose.serial.yml up -d --build
+# With the receiver-canbus Arduino attached, add the receiver USB serial override:
+#   docker compose -f docker-compose.yml -f docker-compose.robot-serial.yml up -d --build
 #
 # Local tweaks (extra ports, bind mounts, debug) belong in docker-compose.override.yml,
 # which compose picks up automatically and .gitignore keeps out of the repo.
