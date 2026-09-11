@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure Raspberry Pi Wi-Fi AP mode and start the FireBot Docker stack.
+# Configure Raspberry Pi Wi-Fi AP mode and start the Durian Bot Docker stack.
 # Raspberry Pi OS Bookworm / NetworkManager is required.
 #
 # Usage:
@@ -114,7 +114,7 @@ if (( RUN_COMPOSE )); then
   (( WITH_SERIAL )) && compose_args+=( -f docker-compose.serial.yml )
   (( WITH_CAMERA )) && compose_args+=( -f docker-compose.camera.yml )
 
-  echo "==> Starting FireBot containers"
+  echo "==> Starting Durian Bot containers"
   cd "$PROJECT_DIR"
   if (( BUILD_IMAGES )); then
     RPI_PUBLIC_API_URL="$PUBLIC_API_URL" \

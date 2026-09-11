@@ -17,14 +17,14 @@ EXTRA_COMPOSE_FILES="${EXTRA_COMPOSE_FILES:--f docker-compose.camera.yml}" # USB
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-ARCHIVE="firebot-images.tar.gz"
+ARCHIVE="durian-bot-images.tar.gz"
 
 echo "==> [1/5] Registering QEMU emulators (no-op if already installed)"
 docker run --privileged --rm tonistiigi/binfmt --install all >/dev/null
 
 echo "==> [2/5] Building backend image ($PLATFORM)"
 docker buildx build --platform "$PLATFORM" --target runtime \
-  -t rescue-robot-backend:latest --load ./backend
+  -t durian-bot-backend:latest --load ./backend
 
 echo "==> [3/5] Building frontend bundle natively (PUBLIC_API_URL=$PUBLIC_API_URL)"
 # Native build on the host, not under QEMU: SvelteKit's SSR+client `vite build` makes
@@ -36,9 +36,9 @@ echo "==> [3/5] Building frontend bundle natively (PUBLIC_API_URL=$PUBLIC_API_UR
   cd frontend
   corepack enable
   corepack prepare pnpm@10.15.0 --activate
-  PUBLIC_API_URL="$PUBLIC_API_URL" PUBLIC_APP_TITLE="${PUBLIC_APP_TITLE:-FireBot}" \
+  PUBLIC_API_URL="$PUBLIC_API_URL" PUBLIC_APP_TITLE="${PUBLIC_APP_TITLE:-Durian Bot}" \
     pnpm install --frozen-lockfile
-  PUBLIC_API_URL="$PUBLIC_API_URL" PUBLIC_APP_TITLE="${PUBLIC_APP_TITLE:-FireBot}" \
+  PUBLIC_API_URL="$PUBLIC_API_URL" PUBLIC_APP_TITLE="${PUBLIC_APP_TITLE:-Durian Bot}" \
     pnpm run build
 )
 
@@ -49,10 +49,10 @@ echo "==> [3b/5] Packaging frontend image ($PLATFORM) -- static copy, no emulati
 docker buildx build --platform "$PLATFORM" \
   -f frontend/Dockerfile.static \
   --build-context frontend-build=./frontend/build \
-  -t rescue-robot-frontend:latest --load ./frontend
+  -t durian-bot-frontend:latest --load ./frontend
 
 echo "==> [4/5] Saving + shipping images to $PI_HOST"
-docker save rescue-robot-backend:latest rescue-robot-frontend:latest | gzip > "$ARCHIVE"
+docker save durian-bot-backend:latest durian-bot-frontend:latest | gzip > "$ARCHIVE"
 scp "$ARCHIVE" "$PI_HOST:~/"
 rm -f "$ARCHIVE"
 

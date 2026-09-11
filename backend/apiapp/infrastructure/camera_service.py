@@ -1,4 +1,4 @@
-"""Process-wide camera service for FireBot.
+"""Process-wide camera service for Durian Bot.
 
 Supports physical video devices (USB Webcam, V4L2, Raspberry Pi camera) when available,
 with an automatic pure-Python synthetic HUD/viewfinder frame generator as a zero-dependency
@@ -917,7 +917,7 @@ def generate_mock_frame(width: int = 320, height: int = 240, frame_count: int = 
                     buf[off], buf[off + 1], buf[off + 2] = target_color
 
     now_str = datetime.now(UTC).strftime("%H:%M:%S")
-    _draw_text(buf, width, height, 8, 8, f"FIREBOT CAM {now_str}", (0, 255, 120))
+    _draw_text(buf, width, height, 8, 8, f"DURIAN BOT CAM {now_str}", (160, 210, 100))
     _draw_text(buf, width, height, 8, 20, "MODE: MOCK SIMULATOR", (255, 200, 50))
     _draw_text(buf, width, height, 8, height - 16, f"{width}X{height} 15FPS", (150, 200, 255))
     _draw_text(buf, width, height, width - 64, 8, "LIVE", (255, 50, 50))

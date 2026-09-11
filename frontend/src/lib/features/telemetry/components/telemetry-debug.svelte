@@ -87,7 +87,7 @@
 			<div><dt class="inline text-muted-foreground">data age</dt></div>
 			<div class="col-span-1 sm:col-span-2">
 				<dd class="inline">
-					{Number.isFinite(dataAgeMs) ? `${dataAgeMs} ms` : '—'}
+					{Number.isFinite(dataAgeMs) ? `${dataAgeMs} ms` : 'n/a'}
 				</dd>
 			</div>
 
@@ -120,7 +120,7 @@
 					{#each sides as view (view.side)}
 						<tr>
 							<td class="pr-3">{SIDE_LABELS[view.side]}</td>
-							<td class="pr-3">{Number.isFinite(view.raw) ? view.raw : '—'}</td>
+							<td class="pr-3">{Number.isFinite(view.raw) ? view.raw : 'n/a'}</td>
 							<td class="pr-3">{view.intensity.toFixed(3)}</td>
 							<td class="pr-3">{view.smooth.toFixed(3)}</td>
 							<td class="pr-3">{view.level}</td>

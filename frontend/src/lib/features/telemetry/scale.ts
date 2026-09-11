@@ -92,5 +92,5 @@ export const LEVEL_LABELS: Record<Level, string> = {
 	clear: 'CLEAR',
 	watch: 'WATCH',
 	warn: 'WARN',
-	critical: 'FIRE'
+	critical: 'BLOCKED'
 };

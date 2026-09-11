@@ -70,7 +70,7 @@ docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml \
 ## With the receiver-canbus Arduino attached
 
 The receiver-canbus mode passes the USB device into the backend container and reads the
-single RB3 stream for flame, battery and CAN status. It is a separate overlay because
+single RB3 stream for IR proximity, battery and CAN status. It is a separate overlay because
 compose refuses to start when a `devices:` path is missing (that would break every
 bench run without hardware):
 
@@ -84,7 +84,7 @@ If `/dev/ttyACM0` is not the right port, set `ROBOT_SERIAL_PORT` in `.env`. If t
 The udev rules in the `embedded-linux-rpi-deployment` skill still apply on the host — the
 container inherits whatever permissions the device node has.
 
-`docker-compose.serial.yml` is only for the legacy standalone FB1 flame board. Do not
+`docker-compose.serial.yml` is only for the legacy standalone FB1 sensor board. Do not
 combine it with `docker-compose.robot-serial.yml`, because both readers would try to
 open the same USB port.
 
@@ -167,27 +167,27 @@ the defaults. Manual steps, for reference or troubleshooting:
 
 3. **Build both images for the Pi's architecture**, tagged to match the names
    `docker compose` would generate on the Pi (`<project-dir>-<service>` —
-   `rescue-robot-backend` / `rescue-robot-frontend` for this repo). Pass the same
+   `durian-bot-backend` / `durian-bot-frontend` for this repo). Pass the same
    `PUBLIC_API_URL` the Pi's `.env` uses:
 
    ```bash
    PLATFORM=linux/arm64   # or linux/arm/v7 — from step 1
 
    docker buildx build --platform $PLATFORM --target runtime \
-     -t rescue-robot-backend:latest --load ./backend
+     -t durian-bot-backend:latest --load ./backend
 
    docker buildx build --platform $PLATFORM --target runtime \
      --build-arg PUBLIC_API_URL=http://192.168.4.1 \
-     -t rescue-robot-frontend:latest --load ./frontend
+     -t durian-bot-frontend:latest --load ./frontend
    ```
 
 4. **Ship and load the images:**
 
    ```bash
-   docker save rescue-robot-backend:latest rescue-robot-frontend:latest \
-     | gzip > firebot-images.tar.gz
-   scp firebot-images.tar.gz <user>@<pi-address>:~/
-   ssh <user>@<pi-address> 'gunzip -c firebot-images.tar.gz | docker load'
+   docker save durian-bot-backend:latest durian-bot-frontend:latest \
+     | gzip > durian-bot-images.tar.gz
+   scp durian-bot-images.tar.gz <user>@<pi-address>:~/
+   ssh <user>@<pi-address> 'gunzip -c durian-bot-images.tar.gz | docker load'
    ```
 
 5. **On the Pi, start with the `prebuilt` overlay**, which is required, not optional:

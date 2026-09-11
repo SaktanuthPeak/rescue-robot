@@ -35,7 +35,7 @@
 	const title = $derived(
 		invalid
 			? `${SIDE_LABELS[side]}: invalid reading`
-			: `${SIDE_LABELS[side]}: ${label} (${LEVEL_LABELS[level]}) — raw ${Math.round(intensity * 1000) / 1000}`
+			: `IR ${SIDE_LABELS[side]}: ${label} (${LEVEL_LABELS[level]}), raw ${Math.round(intensity * 1000) / 1000}`
 	);
 </script>
 

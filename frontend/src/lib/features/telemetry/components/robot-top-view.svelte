@@ -26,8 +26,8 @@
 
 	const ariaLabel = $derived(
 		stale
-			? 'Robot flame sensor view — telemetry stale, readings not live'
-			: `Robot flame sensor view — ${sides.map((s) => `${SIDE_LABELS[s.side]} ${s.label}`).join(', ')}`
+			? 'Robot IR proximity view. Telemetry is stale.'
+			: `Robot IR proximity view. ${sides.map((s) => `${SIDE_LABELS[s.side]} ${s.label}`).join(', ')}`
 	);
 </script>
 

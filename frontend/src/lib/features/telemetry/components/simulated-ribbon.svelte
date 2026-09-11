@@ -23,6 +23,6 @@
 	<TriangleAlert class="size-4 shrink-0" />
 	<span class="font-bold tracking-widest uppercase">simulated data</span>
 	<span class="opacity-80">
-		— ไม่ใช่ค่าจากเซนเซอร์จริง{detail ? ` (${detail})` : ''}
+		ไม่ใช่ค่าจากเซนเซอร์จริง{detail ? ` (${detail})` : ''}
 	</span>
 </div>

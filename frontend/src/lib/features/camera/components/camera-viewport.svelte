@@ -6,12 +6,11 @@
 		Crosshair,
 		Eye,
 		EyeOff,
-		Flame,
 		Maximize2,
 		Minimize2,
 		Power,
-		RefreshCw,
-		Sparkles
+		ScanLine,
+		RefreshCw
 	} from 'lucide-svelte';
 
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -59,11 +58,11 @@
 		flash = true;
 		setTimeout(() => (flash = false), 250);
 		try {
-			const url = await cameraStore.captureSnapshot();
+			await cameraStore.captureSnapshot();
 			toast.success('Camera Snapshot Captured', {
 				description: 'บันทึกภาพจากกล้องสำเร็จ'
 			});
-		} catch (err) {
+		} catch {
 			toast.error('Snapshot failed');
 		}
 	}
@@ -90,7 +89,7 @@
 	{#if cameraStore.enabled && cameraStore.streamUrl && !imgError}
 		<img
 			src={cameraStore.streamUrl}
-			alt="FireBot Live Camera Feed"
+			alt="Durian Bot live orchard camera"
 			class="h-full w-full object-contain"
 			onerror={handleImgError}
 			onload={handleImgLoad}
@@ -104,9 +103,9 @@
 				<CameraOff class="h-10 w-10 opacity-70" />
 			</div>
 			<div>
-				<p class="font-medium text-foreground">กล้องปิดการทำงาน (Camera Standby)</p>
+				<p class="font-medium text-foreground">กล้องอยู่ในโหมด standby</p>
 				<p class="text-xs text-muted-foreground">
-					กดปุ่ม "เปิดกล้อง" เพื่อเริ่มรับภาพสตรีมสดจาก Raspberry Pi
+					กดปุ่ม "เปิดกล้อง" เพื่อเริ่มรับภาพจาก Raspberry Pi
 				</p>
 			</div>
 			<Button
@@ -129,7 +128,7 @@
 				<RefreshCw class="h-8 w-8 animate-spin" />
 			</div>
 			<div>
-				<p class="font-medium text-foreground">กำลังเชื่อมต่อสัญญาณกล้อง...</p>
+				<p class="font-medium text-foreground">กำลังเชื่อมต่อกล้อง</p>
 				<p class="text-xs text-muted-foreground">
 					{cameraStore.error ?? 'รอการส่งข้อมูลภาพจาก Raspberry Pi MJPEG stream'}
 				</p>
@@ -173,8 +172,8 @@
 				<div
 					class="flex items-center gap-1 rounded border border-red-500/30 bg-red-950/80 px-2 py-0.5 font-medium text-red-300 backdrop-blur-xs"
 				>
-					<Flame class="h-3.5 w-3.5 animate-bounce text-red-400" />
-					<span>ไฟ: {strongestDirection.toUpperCase()}</span>
+					<ScanLine class="h-3.5 w-3.5 animate-pulse text-primary motion-reduce:animate-none" />
+					<span>IR: {strongestDirection.toUpperCase()}</span>
 					{#if bearingDeg !== null}
 						<span>({Math.round(bearingDeg)}°)</span>
 					{/if}

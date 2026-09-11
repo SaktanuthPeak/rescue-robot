@@ -62,19 +62,19 @@ float adcVoltage = 0.0;
 float inputVoltage = 0.0;
 
 // =====================================================
-// FLAME SENSOR — A1 ถึง A4
+// IR PROXIMITY SENSOR — A1 ถึง A4
 // =====================================================
 
-const byte FLAME_SENSOR_COUNT = 4;
+const byte IR_SENSOR_COUNT = 4;
 
-const byte FLAME_SENSOR_PINS[FLAME_SENSOR_COUNT] = {
+const byte IR_SENSOR_PINS[IR_SENSOR_COUNT] = {
   A1,
   A2,
   A3,
   A4
 };
 
-int flameAdcValue[FLAME_SENSOR_COUNT] = {
+int irAdcValue[IR_SENSOR_COUNT] = {
   0,
   0,
   0,
@@ -374,10 +374,10 @@ void read_voltage_sensor() {
     adcVoltage * (VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2;
 }
 
-void read_flame_sensors() {
-  for (byte i = 0; i < FLAME_SENSOR_COUNT; i++) {
-    flameAdcValue[i] =
-      analogRead(FLAME_SENSOR_PINS[i]);
+void read_ir_sensors() {
+  for (byte i = 0; i < IR_SENSOR_COUNT; i++) {
+    irAdcValue[i] =
+      analogRead(IR_SENSOR_PINS[i]);
   }
 }
 
@@ -571,21 +571,21 @@ void update_oled() {
     oled.print(inputVoltage, 2);
     oled.print(" V");
 
-    // บรรทัด 2: Flame A1 และ A2
+    // บรรทัด 2: IR A1 และ A2
     oled.setCursor(0, 23);
     oled.print("F1:");
-    oled.print(flameAdcValue[0]);
+    oled.print(irAdcValue[0]);
 
     oled.print(" F2:");
-    oled.print(flameAdcValue[1]);
+    oled.print(irAdcValue[1]);
 
-    // บรรทัด 3: Flame A3 และ A4
+    // บรรทัด 3: IR A3 และ A4
     oled.setCursor(0, 36);
     oled.print("F3:");
-    oled.print(flameAdcValue[2]);
+    oled.print(irAdcValue[2]);
 
     oled.print(" F4:");
-    oled.print(flameAdcValue[3]);
+    oled.print(irAdcValue[3]);
 
     // บรรทัด 4: Motor
     oled.setCursor(0, 49);
@@ -623,6 +623,9 @@ byte calculate_xor_checksum(const char *text) {
 void send_usb_telemetry() {
   char payload[128];
 
+  // Keep the RB3 field positions wire-compatible while the backend migrates its
+  // legacy field names to the new IR proximity terminology.
+
   unsigned long voltageMillivolts =
     static_cast<unsigned long>(
       (inputVoltage * 1000.0) + 0.5);
@@ -637,10 +640,10 @@ void send_usb_telemetry() {
     armCanActive ? 1 : 0,
     voltageMillivolts,
     voltageAdcValue,
-    flameAdcValue[0],
-    flameAdcValue[1],
-    flameAdcValue[2],
-    flameAdcValue[3],
+    irAdcValue[0],
+    irAdcValue[1],
+    irAdcValue[2],
+    irAdcValue[3],
     telemetrySequence);
 
   byte checksum = calculate_xor_checksum(payload);
@@ -667,8 +670,8 @@ void setup() {
   pinMode(CAN_INT_PIN, INPUT);
   pinMode(VOLTAGE_SENSOR_PIN, INPUT);
 
-  for (byte i = 0; i < FLAME_SENSOR_COUNT; i++) {
-    pinMode(FLAME_SENSOR_PINS[i], INPUT);
+  for (byte i = 0; i < IR_SENSOR_COUNT; i++) {
+    pinMode(IR_SENSOR_PINS[i], INPUT);
   }
 
   // เริ่ม OLED
@@ -678,7 +681,7 @@ void setup() {
 
   do {
     oled.setFont(u8g2_font_6x10_tf);
-    oled.drawStr(18, 28, "FIREBOT SYSTEM");
+    oled.drawStr(18, 28, "DURIAN BOT");
     oled.drawStr(16, 44, "Starting...");
   } while (oled.nextPage());
 
@@ -703,7 +706,7 @@ void setup() {
   Serial.println("CAN receiver ready");
 
   read_voltage_sensor();
-  read_flame_sensors();
+  read_ir_sensors();
 
   lastSensorTime = millis();
   lastOledTime = millis();
@@ -734,7 +737,7 @@ void loop() {
     lastSensorTime = currentTime;
 
     read_voltage_sensor();
-    read_flame_sensors();
+    read_ir_sensors();
     send_usb_telemetry();
   }
 

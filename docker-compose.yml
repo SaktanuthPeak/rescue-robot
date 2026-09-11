@@ -1,4 +1,4 @@
-# FireBot web stack for the Raspberry Pi.
+# Durian Bot web stack for the Raspberry Pi.
 #
 #   docker compose up -d --build
 #
@@ -25,10 +25,10 @@ services:
       target: runtime
     # No `image:` key on purpose. Naming an image makes compose treat it as something
     # that could come from a registry and try to pull it first ("pull access denied for
-    # firebot-frontend"); with only `build:`, compose always builds locally. Readable
+    # durian-bot-frontend"); with only `build:`, compose always builds locally. Readable
     # names still come from container_name.
     pull_policy: build
-    container_name: firebot-backend
+    container_name: durian-bot-backend
     restart: unless-stopped
     # tini reaps zombies and forwards SIGTERM to uvicorn, so `compose down` is a clean
     # shutdown instead of a 10s kill -- which matters when a serial port is held open.
@@ -40,7 +40,7 @@ services:
       APP_ENV: prod
       DEBUG: "${DEBUG:-False}"
       LOGGING_LEVEL: "${LOGGING_LEVEL:-20}"
-      TITLE: "${TITLE:-FireBot API}"
+      TITLE: "${TITLE:-Durian Bot API}"
       VERSION: "${VERSION:-0.1.0}"
       DATABASE_URI: "${DATABASE_URI:-}"
       SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY in .env}"
@@ -80,7 +80,7 @@ services:
       # What nginx in the frontend container actually talks to.
       - "9000"
     networks:
-      - firebot
+      - durian-bot
     # Declared here as well as in the Dockerfile so `compose ps` health and the
     # frontend's `service_healthy` gate stay visible/tunable from one file. The Pi is
     # slow to boot the venv, hence the generous start_period.
@@ -117,9 +117,9 @@ services:
       args:
         # Empty uses the browser's current origin, so any Pi IP/hostname works.
         PUBLIC_API_URL: "${PUBLIC_API_URL:-}"
-        PUBLIC_APP_TITLE: "${PUBLIC_APP_TITLE:-FireBot}"
+        PUBLIC_APP_TITLE: "${PUBLIC_APP_TITLE:-Durian Bot}"
     pull_policy: build
-    container_name: firebot-frontend
+    container_name: durian-bot-frontend
     restart: unless-stopped
     init: true
     depends_on:
@@ -130,7 +130,7 @@ services:
       # Public on purpose: this is the dashboard the tablet loads over the Pi's AP.
       - "${WEB_PORT:-80}:80"
     networks:
-      - firebot
+      - durian-bot
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 15s
@@ -164,5 +164,5 @@ services:
     logging: *default-logging
 
 networks:
-  firebot:
+  durian-bot:
     driver: bridge

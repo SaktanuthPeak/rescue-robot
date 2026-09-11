@@ -1,11 +1,12 @@
 <script lang="ts">
 	/**
-	 * FireBot flame monitor.
+	 * Durian Bot field monitor.
 	 *
 	 * Layout is spatially congruent with the hardware: the four readout cards sit on the
 	 * four sides of the vehicle graphic, matching where the sensors physically are, so an
 	 * operator never has to translate "card 2" into "right side".
 	 */
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { dev } from '$app/environment';
 	import { toast } from 'svelte-sonner';
@@ -26,6 +27,11 @@
 
 	const mockScenario = $derived(parseScenario(page.url.searchParams.get('mock')));
 	const showDebug = $derived(page.url.searchParams.get('debug') !== null);
+
+	function openMock(event: MouseEvent, scenario: string) {
+		event.preventDefault();
+		window.location.href = `${resolve('/monitor')}?mock=${scenario}`;
+	}
 
 	const health = useHealthStatus();
 	const apiOk = $derived(health.isPending ? null : !health.isError);
@@ -59,8 +65,8 @@
 			if (!escalatedToCritical) continue;
 			if (now - lastAlertAt[side] < ALERT_COOLDOWN_MS) continue;
 			lastAlertAt[side] = now;
-			toast.error(`Flame detected — ${SIDE_LABELS[side]}`, {
-				description: 'ตรวจพบเปลวไฟความเข้มสูง'
+			toast.error(`IR obstacle alert: ${SIDE_LABELS[side]}`, {
+				description: 'ตรวจพบสิ่งกีดขวางจาก IR sensor'
 			});
 		}
 	});
@@ -72,20 +78,23 @@
 </script>
 
 <svelte:head>
-	<title>FireBot Monitor</title>
+	<title>Durian Bot | Field Monitor</title>
 </svelte:head>
 
 <AppContainer>
-	<header class="flex flex-wrap items-baseline justify-between gap-2">
+	<header class="flex flex-wrap items-end justify-between gap-4 border-b border-border/70 pb-4">
 		<div>
-			<h1 class="text-xl font-semibold tracking-tight">FireBot — Flame Monitor</h1>
-			<p class="text-sm text-muted-foreground">
-				IR flame sensors 4 ทิศ · ค่าจาก Arduino ผ่าน serial
+			<p class="mb-2 font-mono text-[10px] tracking-[0.18em] text-primary uppercase">
+				Durian Bot / Field Monitor
+			</p>
+			<h1 class="text-3xl font-black tracking-[-0.05em] sm:text-4xl">Orchard awareness</h1>
+			<p class="mt-2 max-w-xl text-sm text-muted-foreground">
+				ตรวจสภาพรอบตัวหุ่นยนต์จาก IR sensors และดูภาพสวนแบบ live
 			</p>
 		</div>
 		<div class="flex items-center gap-1">
-			<Button variant="ghost" size="sm" href="/control/">ควบคุมหุ่นยนต์</Button>
-			<Button variant="ghost" size="sm" href="/">← หน้าหลัก</Button>
+			<Button variant="ghost" size="sm" href={resolve('/control')}>ควบคุมหุ่นยนต์</Button>
+			<Button variant="ghost" size="sm" href={resolve('/')}>หน้าหลัก</Button>
 		</div>
 	</header>
 
@@ -109,7 +118,7 @@
 			role="alert"
 		>
 			<strong>Telemetry version mismatch.</strong>
-			Backend ส่ง protocol v{telemetryStore.versionMismatch} แต่ dashboard รองรับ v1 — ไม่แสดงค่าเพื่อเลี่ยงการอ่านผิด
+			Backend ส่ง protocol v{telemetryStore.versionMismatch} แต่ dashboard รองรับ v1. ไม่แสดงค่าเพื่อเลี่ยงการอ่านผิด
 			กรุณาอัปเดต frontend
 		</div>
 	{:else}
@@ -122,7 +131,7 @@
 				class="rounded-md border border-stale/50 bg-stale/10 px-3 py-2 text-sm text-stale"
 				role="alert"
 			>
-				Telemetry stale — ข้อมูลล่าสุดเมื่อ {(telemetryStore.dataAgeMs / 1000).toFixed(1)} วินาทีที่แล้ว
+				Telemetry stale. ข้อมูลล่าสุดเมื่อ {(telemetryStore.dataAgeMs / 1000).toFixed(1)} วินาทีที่แล้ว
 			</div>
 		{/if}
 
@@ -130,12 +139,13 @@
 			<div class="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
 				เชื่อมต่อ backend ไม่ได้ ({telemetryStore.endpoint})
 				{#if dev}
-					— เปิดด้วย
+					เปิดด้วย
 					{#each MOCK_SCENARIOS as scenario, i (scenario)}
-						<a class="text-foreground underline" href="?mock={scenario}">?mock={scenario}</a>{i <
-						MOCK_SCENARIOS.length - 1
-							? ', '
-							: ''}
+						<a
+							class="text-foreground underline"
+							href={resolve('/monitor')}
+							onclick={(event) => openMock(event, scenario)}>?mock={scenario}</a
+						>{i < MOCK_SCENARIOS.length - 1 ? ', ' : ''}
 					{/each}
 					เพื่อดู UI ด้วยข้อมูลจำลอง
 				{/if}
@@ -144,7 +154,7 @@
 
 		<!--
 			Responsive Mission Grid:
-			- lg+: 12 cols (5 cols Camera Stream, 3 cols Robot 360 Top-View, 4 cols Flame Sensor Cards)
+			- lg+: 12 cols (5 cols Camera Stream, 3 cols Robot Top-View, 4 cols IR Sensor Cards)
 			- md/sm: stacked cleanly with full responsiveness
 		-->
 		<div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
@@ -167,7 +177,7 @@
 
 				{#if telemetryStore.frame?.strongest_direction}
 					<p class="mt-2 text-center text-sm text-muted-foreground">
-						ทิศที่แรงที่สุด:
+						ทิศที่ตรวจพบมากที่สุด:
 						<strong class="text-foreground"
 							>{SIDE_LABELS[telemetryStore.frame.strongest_direction]}</strong
 						>
@@ -178,7 +188,7 @@
 				{/if}
 			</div>
 
-			<!-- Flame Sensor Readout Cards Column -->
+			<!-- IR Sensor Readout Cards Column -->
 			<div class="grid grid-cols-2 gap-3 lg:col-span-4">
 				<div class="col-span-2">
 					<FlameReadout

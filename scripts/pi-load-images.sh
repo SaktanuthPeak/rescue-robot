@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run this ON THE PI after firebot-images.tar.gz has been scp'd over (deploy-to-pi.sh
+# Run this ON THE PI after durian-bot-images.tar.gz has been scp'd over (deploy-to-pi.sh
 # does this automatically over SSH -- this script is the manual fallback for when that
 # SSH step drops, or for re-running the load without re-running the whole pipeline).
 #
@@ -9,7 +9,7 @@
 #   EXTRA_COMPOSE_FILES="" ./scripts/pi-load-images.sh   # skip the camera overlay
 set -euo pipefail
 
-ARCHIVE="${1:-$HOME/firebot-images.tar.gz}"
+ARCHIVE="${1:-$HOME/durian-bot-images.tar.gz}"
 # USB webcam is attached by default now -- include docker-compose.camera.yml so
 # /dev/video0 actually gets passed into the container. Override to "" (or add
 # "-f docker-compose.serial.yml") if that changes.

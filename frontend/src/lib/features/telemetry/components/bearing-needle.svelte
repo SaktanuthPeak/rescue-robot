@@ -30,7 +30,7 @@
 {#if visible}
 	<g opacity={dimmed ? 0.3 : 1}>
 		<title>
-			Estimated fire bearing {Math.round(bearing.deg)}° · confidence {Math.round(
+			Estimated obstacle direction {Math.round(bearing.deg)}° · confidence {Math.round(
 				bearing.confidence * 100
 			)}%
 		</title>

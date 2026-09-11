@@ -85,7 +85,7 @@
 					? 'warn'
 					: 'ok'
 	);
-	const serialText = $derived(link === null ? '—' : `${link.source} · ${link.state}`);
+	const serialText = $derived(link === null ? 'offline' : `${link.source} · ${link.state}`);
 
 	const dataTone = $derived<Tone>(!Number.isFinite(dataAgeMs) ? 'idle' : stale ? 'bad' : 'ok');
 	const dataText = $derived.by(() => {
@@ -115,7 +115,7 @@
 
 	{@render chip('API', apiText, apiTone)}
 	{@render chip('WS', wsText, wsTone)}
-	{@render chip('SERIAL', serialText, serialTone)}
+	{@render chip('ROBOT LINK', serialText, serialTone)}
 	{@render chip('DATA', dataText, dataTone, dataTone === 'ok')}
 
 	{#if deviceStatus && deviceStatus !== 'OK'}

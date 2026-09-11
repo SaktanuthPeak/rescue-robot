@@ -7,7 +7,7 @@ FROM node:22-alpine AS builder
 # arg, not a runtime env var. It must be an absolute URL: resolveWsUrl() feeds it to
 # `new URL()` to derive the ws:// telemetry endpoint.
 ARG PUBLIC_API_URL=http://192.168.4.1
-ARG PUBLIC_APP_TITLE=FireBot
+ARG PUBLIC_APP_TITLE=Durian Bot
 ENV PUBLIC_API_URL=$PUBLIC_API_URL \
     PUBLIC_APP_TITLE=$PUBLIC_APP_TITLE
 

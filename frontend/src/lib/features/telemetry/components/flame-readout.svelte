@@ -27,7 +27,7 @@
 	<Card.Content class="px-3">
 		<div class="flex items-center justify-between gap-2">
 			<span class="text-xs font-semibold tracking-widest text-muted-foreground">
-				{SIDE_LABELS[view.side]}
+				IR {SIDE_LABELS[view.side]}
 			</span>
 			<span
 				class={cn(
@@ -35,7 +35,7 @@
 					levelClasses(stale ? 'clear' : view.level)
 				)}
 			>
-				{stale ? '—' : LEVEL_LABELS[view.level]}
+				{stale ? 'OFFLINE' : LEVEL_LABELS[view.level]}
 			</span>
 		</div>
 
@@ -46,7 +46,7 @@
 
 		<div class="mt-1 font-mono text-[11px] text-muted-foreground tabular-nums">
 			{#if view.invalid || adcMax === null}
-				raw —
+				raw n/a
 			{:else}
 				raw {view.raw}<span class="opacity-50">/{adcMax}</span>
 			{/if}

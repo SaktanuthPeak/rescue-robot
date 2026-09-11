@@ -31,9 +31,9 @@
 					<Camera class="h-4 w-4" />
 				</div>
 				<div>
-					<CardTitle class="text-base font-semibold">RPi Camera Feed — สตรีมภาพสด</CardTitle>
+					<CardTitle class="text-base font-semibold">Orchard camera</CardTitle>
 					<CardDescription class="text-xs">
-						Raspberry Pi MJPEG Low-Latency Stream ({cameraStore.resolutionLabel} @ {cameraStore.fps} FPS)
+						Raspberry Pi live feed ({cameraStore.resolutionLabel} @ {cameraStore.fps} FPS)
 					</CardDescription>
 				</div>
 			</div>
@@ -45,14 +45,14 @@
 							class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500"
 						>
 							<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-							Hardware Camera
+							Field camera
 						</span>
 					{:else}
 						<span
 							class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-500"
 						>
 							<Sparkles class="h-3 w-3" />
-							Simulated Mode
+							Simulated feed
 						</span>
 					{/if}
 				{:else}
