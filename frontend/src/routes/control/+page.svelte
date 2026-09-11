@@ -22,6 +22,7 @@
 
 	import AppContainer from '$lib/components/app-container.svelte';
 	import { sendRobotCommand, getRobotStatus } from '$lib/features/robot/api';
+	import MecanumDrivePreview from '$lib/features/robot/ui/mecanum-drive-preview.svelte';
 	import {
 		INITIAL_ROBOT_STATUS,
 		type RobotCommand,
@@ -53,6 +54,9 @@
 				: status.state === 'disabled'
 					? 'Serial disabled'
 					: 'Receiver offline'
+	);
+	const motorCommandPreviewActive = $derived(
+		activeControl?.startsWith('motor-') === true && heldCommand?.channel === 'motor'
 	);
 
 	$effect(() => {
@@ -220,6 +224,13 @@
 					<span>CAN heartbeat</span><strong>{status.motor_can_alive ? 'LIVE' : 'TIMEOUT'}</strong>
 				</div>
 			</div>
+			<MecanumDrivePreview
+				motorCode={motorCommandPreviewActive
+					? (heldCommand?.code ?? status.motor_code)
+					: status.motor_code}
+				active={motorCommandPreviewActive || (isOnline && status.motor_can_alive)}
+				stale={!isOnline && !motorCommandPreviewActive}
+			/>
 
 			<div class="d-pad" aria-label="Motor directional controls">
 				<button
