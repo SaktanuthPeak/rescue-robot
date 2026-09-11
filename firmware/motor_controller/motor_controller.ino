@@ -144,7 +144,7 @@ void setup()
 
     // 3. เริ่มต้นระบบ MCP2515 CAN Bus
     Serial.println("Initializing MCP2515 (Motor & Encoder Controller)...");
-    while (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) != CAN_OK)
+    while (CAN0.begin(MCP_ANY, CAN_500KBPS, CAN_CLOCK_SET) != CAN_OK)
     {
         Serial.println("MCP2515 initialization failed. Retrying...");
         delay(1000);

@@ -61,6 +61,9 @@ const unsigned long CAN_ID_MOTOR = 0x100;
 const unsigned long CAN_ID_TELEMETRY = 0x102; // ส่งรายงานสถานะ Encoder กลับผ่าน CAN
 const unsigned long CAN_TIMEOUT = 300;        // Timeout (ms) ตัดการทำงานมอเตอร์อัตโนมัติ
 
+// ความถี่ Crystal บนโมดูล MCP2515 (MCP_8MHZ หรือ MCP_16MHZ)
+#define CAN_CLOCK_SET MCP_8MHZ
+
 // -----------------------------------------
 // 5. Motion Tuning & Closed-Loop PID
 // -----------------------------------------
