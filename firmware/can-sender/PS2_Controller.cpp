@@ -153,6 +153,18 @@ void print_debug(PS2_Status status_motor, PS2_Status status_arm)
     Serial.print(" RX:");     Serial.print(ps2x.Analog(PSS_RX));
     Serial.print(" RY:");     Serial.print(ps2x.Analog(PSS_RY));
 
+    
+    Serial.print("  | D-PAD U:" ); Serial.print(ps2x.Button(PSB_PAD_UP) ? 1 : 0);
+    Serial.print(" D:" ); Serial.print(ps2x.Button(PSB_PAD_DOWN) ? 1 : 0);
+    Serial.print(" L:" ); Serial.print(ps2x.Button(PSB_PAD_LEFT) ? 1 : 0);
+    Serial.print(" R:" ); Serial.print(ps2x.Button(PSB_PAD_RIGHT) ? 1 : 0);
+
+    // Right-side face buttons: Triangle, Square, Circle, Cross
+    Serial.print("  | TRI:" ); Serial.print(ps2x.Button(PSB_TRIANGLE) ? 1 : 0);
+    Serial.print(" SQ:" ); Serial.print(ps2x.Button(PSB_SQUARE) ? 1 : 0);
+    Serial.print(" CIR:" ); Serial.print(ps2x.Button(PSB_CIRCLE) ? 1 : 0);
+    Serial.print(" X:" ); Serial.print(ps2x.Button(PSB_CROSS) ? 1 : 0);
+    
     Serial.print(" | MOTOR: ");
     switch (status_motor)
     {

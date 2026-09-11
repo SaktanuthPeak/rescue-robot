@@ -10,14 +10,16 @@ MCP_CAN CAN0(CAN_CS_PIN);
 unsigned long lastSendTime = 0;
 unsigned long lastPollTime = 0;
 unsigned long lastDebugTime = 0;
+unsigned long lastErrorWarnTime = 0;
 
 PS2_Status currentMotorStatus = STOP;
 PS2_Status currentArmStatus   = STOP;
 
 // --------------------------------------------------
 // ฟังก์ชันส่ง Status ผ่าน CAN Bus (1 Byte Payload)
+// คืนค่า Return Code จาก MCP_CAN (0 = CAN_OK)
 // --------------------------------------------------
-bool send_can_status(unsigned long canId, PS2_Status status)
+byte send_can_status(unsigned long canId, PS2_Status status)
 {
     byte txData[1];
     txData[0] = (byte)status;
@@ -29,7 +31,7 @@ bool send_can_status(unsigned long canId, PS2_Status status)
         txData
     );
 
-    return result == CAN_OK;
+    return result;
 }
 
 // --------------------------------------------------
@@ -39,22 +41,32 @@ void setup()
 {
     Serial.begin(115200);
 
-    Serial.println("==================================================");
-    Serial.println("      FireBot / DurianBot CAN-Sender Node         ");
-    Serial.println("==================================================");
+    Serial.println(F("=================================================="));
+    Serial.println(F("      FireBot / DurianBot CAN-Sender Node         "));
+    Serial.println(F("=================================================="));
 
     // 1. เริ่มต้นระบบ MCP2515 CAN Bus
-    Serial.println("Initializing MCP2515...");
-    while (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) != CAN_OK)
+    Serial.print(F("Initializing MCP2515 (Clock: "));
+#if CAN_CLOCK_SET == MCP_16MHZ
+    Serial.println(F("16 MHz)..."));
+#else
+    Serial.println(F("8 MHz)..."));
+#endif
+
+    while (CAN0.begin(MCP_ANY, CAN_500KBPS, CAN_CLOCK_SET) != CAN_OK)
     {
-        Serial.println("MCP2515 initialization failed. Retrying in 1s...");
+        Serial.println(F("MCP2515 initialization failed. Retrying in 1s..."));
         delay(1000);
     }
     CAN0.setMode(MCP_NORMAL);
-    Serial.println("MCP2515 Initialized: CAN transmitter ready.");
+
+    // เปิด One-Shot Mode เพื่อไม่ให้ตัวส่งค้างส่งซ้ำไม่รู้จบเมื่อไม่มีบอร์ดรับ ACK
+    CAN0.enOneShotTX();
+
+    Serial.println(F("MCP2515 Initialized: CAN transmitter ready."));
 
     // 2. เริ่มต้นเชื่อมต่อจอยรีโมท PS2
-    Serial.println("Initializing PS2 Gamepad Controller...");
+    Serial.println(F("Initializing PS2 Gamepad Controller..."));
     PS2_Init();
 
     currentMotorStatus = STOP;
@@ -79,25 +91,50 @@ void loop()
     }
 
     // 2. ส่งสถานะคำสั่งไปยัง CAN Bus ทุก 50 ms (20 Hz Heartbeat)
-    // ส่งเป็นจังหวะต่อเนื่อง เพื่อเลี้ยง Watchdog Timeout (300ms) ของบอร์ดรับ
     if (currentTime - lastSendTime >= CAN_SEND_INTERVAL_MS)
     {
         lastSendTime = currentTime;
 
-        bool motorResult = send_can_status(CAN_ID_MOTOR, currentMotorStatus);
-        bool armResult   = send_can_status(CAN_ID_ARM, currentArmStatus);
+        byte motorResult = send_can_status(CAN_ID_MOTOR, currentMotorStatus);
+        byte armResult   = send_can_status(CAN_ID_ARM, currentArmStatus);
 
-        if (!motorResult)
+        // ตรวจสอบความผิดพลาดในการส่ง CAN
+        if (motorResult != CAN_OK || armResult != CAN_OK)
         {
-            Serial.println("WARNING: Motor CAN message send failed");
-        }
-        if (!armResult)
-        {
-            Serial.println("WARNING: Arm CAN message send failed");
+            // ล้าง Buffer ที่ค้างเพื่อไม่ให้บัฟเฟอร์เต็มถาวร
+            CAN0.abortTX();
+
+            // แจ้งเตือนแบบสรุปทุก 1 วินาที (ไม่พิมพ์รัวจนบอร์ดค้าง)
+            if (currentTime - lastErrorWarnTime >= 1000)
+            {
+                lastErrorWarnTime = currentTime;
+                byte tec = CAN0.errorCountTX();
+
+                Serial.println(F("---------------------------------------------------------"));
+                Serial.print(F("[CAN TRANSMIT ERROR] Code: "));
+                Serial.print(motorResult != CAN_OK ? motorResult : armResult);
+
+                if (motorResult == 7 || armResult == 7) {
+                    Serial.println(F(" (TIMEOUT / NO ACK - ไม่มีบอร์ดรับบนสาย)"));
+                } else if (motorResult == 6 || armResult == 6) {
+                    Serial.println(F(" (BUFFER FULL - บัฟเฟอร์ส่งเต็ม ค้างรอส่ง)"));
+                } else {
+                    Serial.println();
+                }
+
+                Serial.print(F("  -> Transmit Error Count (TEC): "));
+                Serial.println(tec);
+                Serial.println(F("  -> สาเหตุที่พบบ่อย:"));
+                Serial.println(F("     1. บอร์ดรับ (motor_controller) ยังไม่ได้เปิด หรือยังไม่ได้รันโค้ด"));
+                Serial.println(F("     2. สาย CAN_H / CAN_L สลับขั้ว หรือไม่ได้ต่อสาย GND ระหว่างบอร์ด"));
+                Serial.println(F("     3. ความถี่ Crystal ไม่ตรง (ตรวจดูตัวถังแร่สีเงินว่าเขียน 8.000 หรือ 16.000)"));
+                Serial.println(F("     4. ลืมเสียบ Jumper 120R (J1) ที่ปลายสาย CAN Bus"));
+                Serial.println(F("---------------------------------------------------------"));
+            }
         }
     }
 
-    // 3. พิมพ์ข้อความตรวจสอบสถานะทาง Serial Monitor ทุก 250 ms
+    // 3. พิมพ์ข้อความตรวจสอบสถานะจอยทาง Serial Monitor ทุก 250 ms
     if (currentTime - lastDebugTime >= DEBUG_PRINT_INTERVAL_MS)
     {
         lastDebugTime = currentTime;

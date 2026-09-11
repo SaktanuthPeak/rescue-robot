@@ -27,6 +27,12 @@ constexpr byte CAN_CS_PIN = 10;
 constexpr unsigned long CAN_ID_MOTOR = 0x100; // ID ควบคุมมอเตอร์ล้อ
 constexpr unsigned long CAN_ID_ARM   = 0x101; // ID ควบคุมแขนกล
 
+// ความถี่ Crystal บนโมดูล MCP2515:
+// ให้ดูตัวถังโลหะสีเงินทรงรีบนบอร์ด MCP2515:
+// - ถ้าเขียน 8.000 (หรือ 8M)  -> ให้ใช้ MCP_8MHZ
+// - ถ้าเขียน 16.000 (หรือ 16M) -> ให้ใช้ MCP_16MHZ
+#define CAN_CLOCK_SET MCP_8MHZ
+
 // -----------------------------------------
 // Timing & Controller Settings
 // -----------------------------------------
