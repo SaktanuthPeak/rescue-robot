@@ -23,7 +23,7 @@
 	});
 </script>
 
-<Card class="overflow-hidden border-border/80 bg-card">
+<Card class="overflow-hidden rounded-sm border-border/80 bg-card">
 	<CardHeader class="pb-3">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<div class="flex items-center gap-2">

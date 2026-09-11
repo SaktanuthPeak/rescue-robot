@@ -20,7 +20,7 @@
 
 <Card.Root
 	class={cn(
-		'gap-0 py-3 transition-colors duration-200',
+		'gap-0 rounded-sm py-3 transition-colors duration-200',
 		isCritical && 'border-destructive ring-1 ring-destructive/30'
 	)}
 >
