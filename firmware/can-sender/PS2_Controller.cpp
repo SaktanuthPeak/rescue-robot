@@ -1,159 +1,129 @@
 #include "PS2_Controller.h"
-
-// ประกาศอินสแตนซ์ของ PS2X
-PS2X ps2x;
-
-static PS2_Status motorStatus = STOP;
-static PS2_Status armStatus = STOP;
-
-bool PS2_Init()
+#include "PS2X_lib.h"
+namespace
 {
-    // กำหนดขาสำหรับจอย PS2: CLK, CMD, ATT, DAT
-    byte error = ps2x.config_gamepad(PS2_CLK_PIN, PS2_CMD_PIN, PS2_ATT_PIN, PS2_DAT_PIN, true, true);
-
-    if (error == 0)
+    uint8_t ps2Transfer(uint8_t outgoingByte)
     {
-        Serial.println("PS2 Controller: Connected and configured successfully");
-        byte type = ps2x.readType();
-        switch (type)
+        uint8_t incomingByte = 0;
+
+        for (uint8_t bit = 0; bit < 8; bit++)
         {
-        case 0: Serial.println("  Controller Type: Unknown"); break;
-        case 1: Serial.println("  Controller Type: DualShock"); break;
-        case 2: Serial.println("  Controller Type: GuitarHero"); break;
-        case 3: Serial.println("  Controller Type: Wireless DualShock"); break;
-        default: break;
+            digitalWrite(PS2_CMD_PIN, (outgoingByte & 0x01) ? HIGH : LOW);
+            outgoingByte >>= 1;
+
+            digitalWrite(PS2_CLK_PIN, LOW);
+            delayMicroseconds(8);
+
+            if (digitalRead(PS2_DAT_PIN) == HIGH)
+            {
+                incomingByte |= (1 << bit);
+            }
+
+            digitalWrite(PS2_CLK_PIN, HIGH);
+            delayMicroseconds(8);
         }
-        return true;
+
+        return incomingByte;
     }
-    else
+
+    // --- Analog filtering + calibration for joystick X (ps2_data[5]) ---
+    const uint8_t FILTER_SIZE = 5;
+    const uint8_t DEADZONE_THRESHOLD = 12; // adjust as needed
+
+    uint8_t analogBuffer[FILTER_SIZE] = {128, 128, 128, 128, 128};
+    uint8_t analogIndex = 0;
+    uint8_t analogCount = 0; // how many valid samples in buffer (<= FILTER_SIZE)
+    uint8_t analogCenter = 128;
+    bool analogCalibrated = false;
+
+    void addAnalogSample(uint8_t v)
     {
-        Serial.print("PS2 Controller: Connection FAILED! Error code: ");
-        Serial.println(error);
-        if (error == 1) Serial.println("  -> No controller found! Check wiring (DAT, CMD, ATT, CLK) and power.");
-        if (error == 2) Serial.println("  -> Controller found but refusing commands. Turn on red ANALOG light.");
-        if (error == 3) Serial.println("  -> Controller refusing Pressure mode.");
-        return false;
+        analogBuffer[analogIndex] = v;
+        analogIndex = (analogIndex + 1) % FILTER_SIZE;
+        if (analogCount < FILTER_SIZE) analogCount++;
     }
-}
 
-PS2_Status get_status_from_sticks(int x, int y, PS2_Status center_value)
-{
-    if (x == 0 && y == -1)       return FORWARD;
-    else if (x == 0 && y == 1)   return BACKWARD;
-    else if (x == -1 && y == 0)  return LEFT;
-    else if (x == 1 && y == 0)   return RIGHT;
-    else if (x == -1 && y == -1) return FORWARD_LEFT;
-    else if (x == 1 && y == -1)  return FORWARD_RIGHT;
-    else if (x == -1 && y == 1)  return BACKWARD_LEFT;
-    else if (x == 1 && y == 1)   return BACKWARD_RIGHT;
-    else                         return center_value;
-}
-
-void PS2_Update()
-{
-    ps2x.read_gamepad();
-
-    // ==============================================================
-    // 1. ตรวจสอบการควบคุมล้อ (MOTOR CONTROL)
-    // ==============================================================
-    int x_motor = 0;
-    int y_motor = 0;
-
-    // เช็คปุ่ม D-PAD ก่อน (ลำดับความสำคัญสูงสุดสำหรับการเดินหน้า/ถอย/สไลด์ตรง)
-    if (ps2x.Button(PSB_PAD_UP))         y_motor = -1;
-    else if (ps2x.Button(PSB_PAD_DOWN))  y_motor = 1;
-
-    if (ps2x.Button(PSB_PAD_LEFT))       x_motor = -1;
-    else if (ps2x.Button(PSB_PAD_RIGHT)) x_motor = 1;
-
-    // ถ้าไม่มีการกด D-PAD ให้ตรวจสอบก้านโยกอนาล็อกซ้าย (Left Stick: LX, LY)
-    if (x_motor == 0 && y_motor == 0)
+    uint8_t getMedianAnalog()
     {
-        uint8_t analog_lx = ps2x.Analog(PSS_LX);
-        uint8_t analog_ly = ps2x.Analog(PSS_LY);
+        uint8_t tmp[FILTER_SIZE];
+        uint8_t n = analogCount;
+        if (n == 0) return analogCenter;
+        for (uint8_t i = 0; i < n; i++) tmp[i] = analogBuffer[i];
 
-        // ป้องกันค่ารบกวน 255 เมื่อสัญญาณจอยหลุด
-        if (analog_lx != 255 && analog_ly != 255)
+        // simple sort (bubble/insertion ok for small N)
+        for (uint8_t i = 0; i < n - 1; i++)
         {
-            if (analog_lx < (128 - PS2_DEADZONE))      x_motor = -1;
-            else if (analog_lx > (128 + PS2_DEADZONE)) x_motor = 1;
-
-            if (analog_ly < (128 - PS2_DEADZONE))      y_motor = -1;
-            else if (analog_ly > (128 + PS2_DEADZONE)) y_motor = 1;
+            for (uint8_t j = i + 1; j < n; j++)
+            {
+                if (tmp[j] < tmp[i])
+                {
+                    uint8_t t = tmp[i];
+                    tmp[i] = tmp[j];
+                    tmp[j] = t;
+                }
+            }
         }
-    }
 
-    // แปลงแกน x, y เป็นทิศทางการขับเคลื่อนล้อ Mecanum
-    motorStatus = get_status_from_sticks(x_motor, y_motor, STOP);
-
-    // ปุ่มหมุนตัวอยู่กับที่ (Spin In-Place): L1 = หมุนซ้าย, R1 = หมุนขวา
-    if (ps2x.Button(PSB_L1))
-    {
-        motorStatus = SPIN_LEFT;
-    }
-    else if (ps2x.Button(PSB_R1))
-    {
-        motorStatus = SPIN_RIGHT;
-    }
-
-    // ==============================================================
-    // 2. ตรวจสอบการควบคุมแขนกลและกริปเปอร์ (ARM & GRIPPER CONTROL)
-    // ==============================================================
-    int x_arm = 0;
-    int y_arm = 0;
-
-    uint8_t analog_rx = ps2x.Analog(PSS_RX);
-    uint8_t analog_ry = ps2x.Analog(PSS_RY);
-
-    if (analog_rx != 255 && analog_ry != 255)
-    {
-        if (analog_rx < (128 - PS2_DEADZONE))      x_arm = -1;
-        else if (analog_rx > (128 + PS2_DEADZONE)) x_arm = 1;
-
-        if (analog_ry < (128 - PS2_DEADZONE))      y_arm = -1;
-        else if (analog_ry > (128 + PS2_DEADZONE)) y_arm = 1;
-    }
-
-    armStatus = get_status_from_sticks(x_arm, y_arm, STOP);
-
-    // ปุ่มกดคุมกริปเปอร์และแขน:
-    // Square = หนีบ, Circle = ปล่อย, Triangle = ยกขึ้น, Cross = วางลง
-    if (ps2x.Button(PSB_SQUARE))
-    {
-        armStatus = Clamp;
-    }
-    else if (ps2x.Button(PSB_CIRCLE))
-    {
-        armStatus = Release;
-    }
-    else if (ps2x.Button(PSB_TRIANGLE))
-    {
-        armStatus = FORWARD;
-    }
-    else if (ps2x.Button(PSB_CROSS))
-    {
-        armStatus = BACKWARD;
+        return tmp[n/2];
     }
 }
 
-PS2_Status PS2_GetMotorStatus()
+void PS2_Init() // does not need to be called externally since PS2_ReadData handles initialization on first call
 {
-    return motorStatus;
+    pinMode(PS2_CMD_PIN, OUTPUT);
+    pinMode(PS2_CLK_PIN, OUTPUT);
+    pinMode(PS2_ATT_PIN, OUTPUT);
+    pinMode(PS2_DAT_PIN, INPUT_PULLUP);
+
+    digitalWrite(PS2_CMD_PIN, HIGH);
+    digitalWrite(PS2_CLK_PIN, HIGH);
+    digitalWrite(PS2_ATT_PIN, HIGH);
+
+    // Quick calibration: read a few samples to establish analog center
+    for (uint8_t i = 0; i < FILTER_SIZE; i++)
+    {
+        uint8_t tmp[6] = {0};
+        PS2_ReadData(tmp);
+        addAnalogSample(tmp[5]);
+        delay(20);
+    }
+    analogCenter = getMedianAnalog();
+    analogCalibrated = true;
 }
 
-PS2_Status PS2_GetArmStatus()
+void PS2_ReadData(uint8_t *ps2_data)
 {
-    return armStatus;
+    digitalWrite(PS2_ATT_PIN, LOW);
+    delayMicroseconds(10);
+
+    ps2Transfer(0x01);
+    ps2Transfer(0x42);
+    ps2Transfer(0x00);
+
+    for (uint8_t i = 0; i < 6; i++)
+    {
+        ps2_data[i] = ps2Transfer(0x00);
+    }
+
+    // add recent analog X sample into filter buffer
+    addAnalogSample(ps2_data[5]);
+
+    delayMicroseconds(10);
+    digitalWrite(PS2_ATT_PIN, HIGH);
 }
 
-void print_debug(PS2_Status status_motor, PS2_Status status_arm)
+void print_debug(PS2_Status status_left, PS2_Status status_right, PS2_Status gripper_status)
 {
-    Serial.print("PS2 | LX:"); Serial.print(ps2x.Analog(PSS_LX));
-    Serial.print(" LY:");     Serial.print(ps2x.Analog(PSS_LY));
-    Serial.print(" RX:");     Serial.print(ps2x.Analog(PSS_RX));
-    Serial.print(" RY:");     Serial.print(ps2x.Analog(PSS_RY));
+    // Print raw analog values and D-pad/button states from PS2X
+    Serial.print("ANALOG RX:");
+    Serial.print(ps2x.Analog(PSS_RX));
+    Serial.print("  LX:");
+    Serial.print(ps2x.Analog(PSS_LX));
+    Serial.print("  RY:");
+    Serial.print(ps2x.Analog(PSS_RY));
+    Serial.print("  LY:");
+    Serial.print(ps2x.Analog(PSS_LY));
 
-    
     Serial.print("  | D-PAD U:" ); Serial.print(ps2x.Button(PSB_PAD_UP) ? 1 : 0);
     Serial.print(" D:" ); Serial.print(ps2x.Button(PSB_PAD_DOWN) ? 1 : 0);
     Serial.print(" L:" ); Serial.print(ps2x.Button(PSB_PAD_LEFT) ? 1 : 0);
@@ -164,33 +134,35 @@ void print_debug(PS2_Status status_motor, PS2_Status status_arm)
     Serial.print(" SQ:" ); Serial.print(ps2x.Button(PSB_SQUARE) ? 1 : 0);
     Serial.print(" CIR:" ); Serial.print(ps2x.Button(PSB_CIRCLE) ? 1 : 0);
     Serial.print(" X:" ); Serial.print(ps2x.Button(PSB_CROSS) ? 1 : 0);
-    
-    Serial.print(" | MOTOR: ");
-    switch (status_motor)
+
+   Serial.print("  | STATUS: ");
+    Serial.print(" LEFT :");
+    switch (status_left)
     {
-    case FORWARD:        Serial.print("FORWARD"); break;
-    case BACKWARD:       Serial.print("BACKWARD"); break;
-    case LEFT:           Serial.print("LEFT"); break;
-    case RIGHT:          Serial.print("RIGHT"); break;
-    case FORWARD_LEFT:   Serial.print("FORWARD_LEFT"); break;
-    case FORWARD_RIGHT:  Serial.print("FORWARD_RIGHT"); break;
-    case BACKWARD_LEFT:  Serial.print("BACKWARD_LEFT"); break;
+    case FORWARD: Serial.print("FORWARD"); break;
+    case BACKWARD: Serial.print("BACKWARD"); break;
+    case LEFT: Serial.print("LEFT"); break;
+    case RIGHT: Serial.print("RIGHT"); break;
+    case FORWARD_LEFT: Serial.print("FORWARD_LEFT"); break;
+    case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
+    case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;
     case BACKWARD_RIGHT: Serial.print("BACKWARD_RIGHT"); break;
-    case SPIN_LEFT:      Serial.print("SPIN_LEFT"); break;
-    case SPIN_RIGHT:     Serial.print("SPIN_RIGHT"); break;
-    default:             Serial.print("STOP"); break;
+    default: Serial.print("STOP"); break;
     }
 
-    Serial.print(" | ARM: ");
-    switch (status_arm)
+    Serial.print("  | STATUS: ");
+    Serial.print("  |  RIGHT :");
+    switch (status_right)
     {
-    case FORWARD:  Serial.print("UP"); break;
-    case BACKWARD: Serial.print("DOWN"); break;
-    case LEFT:     Serial.print("TURN_LEFT"); break;
-    case RIGHT:    Serial.print("TURN_RIGHT"); break;
-    case Clamp:    Serial.print("CLAMP"); break;
-    case Release:  Serial.print("RELEASE"); break;
-    default:       Serial.print("STOP"); break;
+    case FORWARD: Serial.print("FORWARD"); break;
+    case BACKWARD: Serial.print("BACKWARD"); break;
+    case LEFT: Serial.print("LEFT"); break;
+    case RIGHT: Serial.print("RIGHT"); break;
+    case FORWARD_LEFT: Serial.print("FORWARD_LEFT"); break;
+    case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
+    case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;
+    case BACKWARD_RIGHT: Serial.print("BACKWARD_RIGHT"); break;
+    default: Serial.print("CENTER"); break;
     }
 
     Serial.println();

@@ -3,17 +3,31 @@
 
 #include <Arduino.h>
 
-// =====================================================
-// การกำหนด Pin สำหรับตัวส่งสัญญาณ CAN รีโมท PS2 (can-sender)
-// =====================================================
+// -----------------------------------------
+// Motor pins - L298N ตัวที่ 1 (ล้อคู่หน้า)
+// ลำดับ: ENA, IN1, IN2, IN3, IN4, ENB
+// -----------------------------------------
+#define ENA_FL 2   // ล้อหน้าซ้าย PWM
+#define IN1_FL 3   // ล้อหน้าซ้าย ทิศทาง 1
+#define IN2_FL 4   // ล้อหน้าซ้าย ทิศทาง 2
+#define IN3_FR 5   // ล้อหน้าขวา ทิศทาง 1
+#define IN4_FR 6   // ล้อหน้าขวา ทิศทาง 2
+#define ENB_FR 7   // ล้อหน้าขวา PWM
 
 // -----------------------------------------
-// PS2 Gamepad Receiver Pins
-// สายสัญญาณมาตรฐานตัวรับจอย PS2:
-//   DAT = น้ำตาล/ส้ม-น้ำตาล
-//   CMD = ส้ม
-//   ATT = เหลือง (Attention / CS)
-//   CLK = น้ำเงิน (Clock)
+// Motor pins - L298N ตัวที่ 2 (ล้อคู่หลัง)
+// ลำดับ: ENA, IN1, IN2, IN3, IN4, ENB
+// -----------------------------------------
+#define ENA_BL 8   // ล้อหลังซ้าย PWM
+#define IN1_BL 9   // ล้อหลังซ้าย ทิศทาง 1
+#define IN2_BL 10  // ล้อหลังซ้าย ทิศทาง 2
+#define IN3_BR 11  // ล้อหลังขวา ทิศทาง 1
+#define IN4_BR 12  // ล้อหลังขวา ทิศทาง 2
+#define ENB_BR 13  // ล้อหลังขวา PWM (เพิ่มขา 13 ให้เป็น ENB นะครับ)
+
+// -----------------------------------------
+// PS2 software SPI pins (รีโมต)
+// ใช้พิน Analog หรือ Digital ของ Mega ก็ได้ (ในที่นี้คงไว้ที่ A0-A3)
 // -----------------------------------------
 constexpr uint8_t PS2_DAT_PIN = A0;
 constexpr uint8_t PS2_CMD_PIN = A1;
@@ -21,24 +35,19 @@ constexpr uint8_t PS2_ATT_PIN = A2;
 constexpr uint8_t PS2_CLK_PIN = A3;
 
 // -----------------------------------------
-// MCP2515 CAN Bus Module (SPI)
+// Extra peripherals
+// ย้ายไปใช้พินสูงๆ ของบอร์ด Mega เพื่อความเป็นระเบียบและไม่ชนกัน
 // -----------------------------------------
-constexpr byte CAN_CS_PIN = 10;
-constexpr unsigned long CAN_ID_MOTOR = 0x100; // ID ควบคุมมอเตอร์ล้อ
-constexpr unsigned long CAN_ID_ARM   = 0x101; // ID ควบคุมแขนกล
-
-// ความถี่ Crystal บนโมดูล MCP2515:
-// ให้ดูตัวถังโลหะสีเงินทรงรีบนบอร์ด MCP2515:
-// - ถ้าเขียน 8.000 (หรือ 8M)  -> ให้ใช้ MCP_8MHZ
-// - ถ้าเขียน 16.000 (หรือ 16M) -> ให้ใช้ MCP_16MHZ
-#define CAN_CLOCK_SET MCP_8MHZ
+constexpr uint8_t BUZZER_PIN = 44;
+constexpr uint8_t SERVO_PIN = 45;
+constexpr uint8_t ULTRASONIC_TRIG_PIN = 46;
+constexpr uint8_t ULTRASONIC_ECHO_PIN = 47;
 
 // -----------------------------------------
-// Timing & Controller Settings
+// Motion tuning
 // -----------------------------------------
-constexpr unsigned long CAN_SEND_INTERVAL_MS   = 50;  // ส่งสถานะออก CAN Bus ทุก 50 ms (20 Hz Heartbeat)
-constexpr unsigned long PS2_POLL_INTERVAL_MS   = 15;  // อ่านค่าจากจอย PS2 ทุก 15 ms (~66 Hz)
-constexpr unsigned long DEBUG_PRINT_INTERVAL_MS = 250; // พิมพ์สถานะออก Serial ทุก 250 ms
-constexpr uint8_t PS2_DEADZONE                 = 15;  // ค่า Deadzone ก้านโยกอนาล็อก
+constexpr uint8_t MOTOR_FULL_SPEED = 200;
+constexpr uint8_t MOTOR_TURN_SPEED = 170;
+constexpr uint8_t MOTOR_CURVE_SPEED = 140;
 
 #endif
