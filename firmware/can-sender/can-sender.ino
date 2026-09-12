@@ -33,8 +33,12 @@ enum PS2_Status : uint8_t
     FORWARD_RIGHT = 6,
     BACKWARD_LEFT = 7,
     BACKWARD_RIGHT = 8,
-    Release = 9,
-    Clamp = 10
+    SPIN_LEFT = 9,
+    SPIN_RIGHT = 10,
+    Pump_On = 11,
+    Pump_Off = 12,
+    Head_Up = 13,
+    Head_Down = 14
 };
 
 // สถานะที่จะส่งขึ้น CAN
@@ -146,7 +150,7 @@ void loop()
         currentMotorStatus = get_status_from_sticks(x_left, y_left, STOP);
 
         // ----------------------------------------------------
-        // ควบคุม Arm (แขนกล) ด้วยอนาล็อกขวา และ Gripper
+        // ควบคุม Arm (แขนกล) ด้วยอนาล็อกขวา และปุ่มฟังก์ชัน
         // ----------------------------------------------------
         int x_right = 0;
         int y_right = 0;
@@ -156,22 +160,47 @@ void loop()
         
         if (rx != 255 || ry != 255) 
         {
-            if (rx < (128 - PS2_DEADZONE)) x_right = -1;
-            else if (rx > (128 + PS2_DEADZONE)) x_right = 1;
-            if (ry < (128 - PS2_DEADZONE)) y_right = -1;
-            else if (ry > (128 + PS2_DEADZONE)) y_right = 1;
-        }
-        PS2_Status stick_arm_status = get_status_from_sticks(x_right, y_right, STOP);
+            int dx = (int)rx - 128;
+            int dy = (int)ry - 128;
 
-        // จัดลำดับความสำคัญ: ถ้ากดปุ่มหนีบ/ปล่อย ให้ส่งค่า Gripper
-        // ถ้าไม่ได้กด ให้ส่งค่าทิศทางจากก้านโยกขวา
-        if (ps2x.Button(PSB_SQUARE)) {
-            currentArmStatus = Clamp;
-        } else if (ps2x.Button(PSB_CIRCLE)) {
-            currentArmStatus = Release;
-        } else {
-            currentArmStatus = stick_arm_status;
+            if (abs(dx) > PS2_DEADZONE || abs(dy) > PS2_DEADZONE) 
+            {
+                if (abs(dy) >= abs(dx)) 
+                {
+                    if (dy < 0) y_right = -1;
+                    else y_right = 1;
+                } 
+                else 
+                {
+                    if (dx < 0) x_right = -1;
+                    else x_right = 1;
+                }
+            }
         }
+
+        PS2_Status stick_arm_status = STOP;
+
+        if (ps2x.Button(PSB_SQUARE)) {
+            stick_arm_status = Pump_On;
+        } else if (ps2x.Button(PSB_CIRCLE)) {
+            stick_arm_status = Pump_Off;
+        } else if (ps2x.Button(PSB_TRIANGLE)) {
+            stick_arm_status = Head_Up;
+        } else if (ps2x.Button(PSB_CROSS)) {
+            stick_arm_status = Head_Down;
+        } else if (y_right == -1) {
+            stick_arm_status = FORWARD;
+        } else if (y_right == 1) {
+            stick_arm_status = BACKWARD;
+        } else if (x_right == -1) {
+            stick_arm_status = LEFT;
+        } else if (x_right == 1) {
+            stick_arm_status = RIGHT;
+        } else {
+            stick_arm_status = STOP;
+        }
+
+        currentArmStatus = stick_arm_status;
     }
 
     if (currentTime - lastSendTime >= CAN_SEND_INTERVAL)
@@ -204,13 +233,11 @@ void loop()
             case BACKWARD: Serial.print("BACKWARD"); break;
             case LEFT: Serial.print("LEFT"); break;
             case RIGHT: Serial.print("RIGHT"); break;
-            case FORWARD_LEFT: Serial.print("FORWARD_LEFT"); break;
-            case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
-            case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;
-            case BACKWARD_RIGHT: Serial.print("BACKWARD_RIGHT"); break;
-            case Clamp: Serial.print("CLAMP"); break;
-            case Release: Serial.print("RELEASE"); break;
-            default: Serial.print("CENTER"); break;
+            case Pump_On: Serial.print("Pump_On"); break;
+            case Pump_Off: Serial.print("Pump_Off"); break;
+            case Head_Up: Serial.print("Head_Up"); break;
+            case Head_Down: Serial.print("Head_Down"); break;
+            default: Serial.print("STOP"); break;
         }
         Serial.println();
     }

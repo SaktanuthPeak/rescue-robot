@@ -147,6 +147,9 @@ void print_debug(PS2_Status status_left, PS2_Status status_right, PS2_Status gri
     case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
     case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;
     case BACKWARD_RIGHT: Serial.print("BACKWARD_RIGHT"); break;
+    case SPIN_LEFT: Serial.print("SPIN_LEFT"); break;
+    case SPIN_RIGHT: Serial.print("SPIN_RIGHT"); break;
+
     default: Serial.print("STOP"); break;
     }
 
@@ -158,10 +161,10 @@ void print_debug(PS2_Status status_left, PS2_Status status_right, PS2_Status gri
     case BACKWARD: Serial.print("BACKWARD"); break;
     case LEFT: Serial.print("LEFT"); break;
     case RIGHT: Serial.print("RIGHT"); break;
-    case FORWARD_LEFT: Serial.print("FORWARD_LEFT"); break;
-    case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
-    case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;
-    case BACKWARD_RIGHT: Serial.print("BACKWARD_RIGHT"); break;
+    case Pump_On: Serial.print("Pump_On"); break;
+    case Pump_Off: Serial.print("Pump_Off"); break;
+    case Head_Up: Serial.print("Head_Up"); break;
+    case Head_Down: Serial.print("Head_Down"); break;
     default: Serial.print("CENTER"); break;
     }
 

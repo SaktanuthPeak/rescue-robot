@@ -8,20 +8,20 @@
 typedef enum
 {
     STOP = 0,
-
-    FORWARD,
-    BACKWARD,
-    LEFT,
-    RIGHT,
-    FORWARD_LEFT,
-    FORWARD_RIGHT,
-    BACKWARD_LEFT,
-    BACKWARD_RIGHT,
-    Clamp,
-    Release,
-    SPIN_LEFT,   // <--- เพิ่มบรรทัดนี้เข้าไป
-    SPIN_RIGHT   // <--- เพิ่มบรรทัดนี้เข้าไป
-
+    FORWARD = 1,
+    BACKWARD = 2,
+    LEFT = 3,
+    RIGHT = 4,
+    FORWARD_LEFT = 5,
+    FORWARD_RIGHT = 6,
+    BACKWARD_LEFT = 7,
+    BACKWARD_RIGHT = 8,
+    SPIN_LEFT = 9,
+    SPIN_RIGHT = 10,
+    Pump_On = 11,
+    Pump_Off = 12,
+    Head_Up = 13,
+    Head_Down = 14
 } PS2_Status;
 
 void PS2_ReadData(uint8_t *ps2_data);
