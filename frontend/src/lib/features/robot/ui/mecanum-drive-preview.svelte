@@ -6,9 +6,10 @@
 		motorCode: number;
 		active: boolean;
 		stale?: boolean;
+		compact?: boolean;
 	}
 
-	let { motorCode, active, stale = false }: Props = $props();
+	let { motorCode, active, stale = false, compact = false }: Props = $props();
 
 	const wheels: { id: WheelId; x: number; y: number; tilt: number }[] = [
 		{ id: 'FL', x: 70, y: 116, tilt: 26 },
@@ -58,7 +59,7 @@
 	const rollerOffsets = Array.from({ length: 11 }, (_, index) => index * 18 - 45);
 </script>
 
-<div class="drive-preview" class:is-dimmed={!available}>
+<div class="drive-preview" class:is-dimmed={!available} class:is-compact={compact}>
 	<div class="preview-heading">
 		<div>
 			<span class="preview-kicker">MECANUM DRIVE</span>
@@ -210,6 +211,10 @@
 		display: block;
 		width: min(100%, 280px);
 		margin: 0.6rem auto 0.15rem;
+	}
+	.is-compact .robot-svg {
+		width: min(100%, 175px);
+		margin-top: 0.35rem;
 	}
 	svg text {
 		font-family: inherit;
@@ -370,6 +375,23 @@
 		line-height: 1.5;
 		text-align: center;
 		margin: 0.65rem 0 0;
+	}
+	.is-compact {
+		padding: 0.65rem;
+	}
+	.is-compact .preview-heading strong {
+		font-size: 0.76rem;
+	}
+	.is-compact .preview-state {
+		font-size: 0.62rem;
+		padding: 0.2rem 0.4rem;
+	}
+	.is-compact .preview-footer {
+		padding-top: 0.4rem;
+		font-size: 0.62rem;
+	}
+	.is-compact .preview-note {
+		font-size: 0.58rem;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.tread,

@@ -19,9 +19,10 @@
 	interface Props {
 		strongestDirection?: string | null;
 		bearingDeg?: number | null;
+		compact?: boolean;
 	}
 
-	let { strongestDirection = null, bearingDeg = null }: Props = $props();
+	let { strongestDirection = null, bearingDeg = null, compact = false }: Props = $props();
 
 	let containerEl = $state<HTMLDivElement | null>(null);
 	let isFullscreen = $state(false);
@@ -48,10 +49,12 @@
 
 	function handleImgError() {
 		imgError = true;
+		cameraStore.markStreamError();
 	}
 
 	function handleImgLoad() {
 		imgError = false;
+		cameraStore.markStreamConnected();
 	}
 
 	async function handleSnapshot() {
@@ -76,7 +79,9 @@
 
 <div
 	bind:this={containerEl}
-	class="relative flex aspect-4/3 w-full flex-col items-center justify-center overflow-hidden rounded-lg border border-border bg-black/95 text-white shadow-inner select-none"
+	class:compact
+	class="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-lg border border-border bg-black/95 text-white shadow-inner select-none"
+	style:aspect-ratio={compact ? '16 / 7' : '4 / 3'}
 >
 	<!-- Flash animation on snapshot -->
 	{#if flash}
@@ -86,7 +91,7 @@
 	{/if}
 
 	<!-- Video Stream Display -->
-	{#if cameraStore.enabled && cameraStore.streamUrl && !imgError}
+	{#if cameraStore.streamUrl && !imgError}
 		<img
 			src={cameraStore.streamUrl}
 			alt="Durian Bot live orchard camera"
@@ -94,7 +99,7 @@
 			onerror={handleImgError}
 			onload={handleImgLoad}
 		/>
-	{:else if !cameraStore.enabled}
+	{:else if cameraStore.connectionState === 'standby'}
 		<!-- Camera Powered Off Graphic -->
 		<div
 			class="flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground"
@@ -119,8 +124,8 @@
 				เปิดกล้อง (Turn ON)
 			</Button>
 		</div>
-	{:else}
-		<!-- Stream Disconnected / Connecting Error State -->
+	{:else if cameraStore.connectionState === 'connecting'}
+		<!-- Stream is still warming up -->
 		<div
 			class="flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground"
 		>
@@ -138,16 +143,35 @@
 				ลองใหม่อีกครั้ง
 			</Button>
 		</div>
+	{:else}
+		<!-- Stream Disconnected Graphic -->
+		<div
+			class="flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground"
+		>
+			<div class="rounded-full bg-destructive/10 p-4 text-destructive">
+				<CameraOff class="h-10 w-10 opacity-80" />
+			</div>
+			<div>
+				<p class="font-medium text-foreground">กล้อง disconnected</p>
+				<p class="text-xs text-muted-foreground">
+					{cameraStore.error ?? 'ไม่พบสัญญาณภาพจาก Raspberry Pi'}
+				</p>
+			</div>
+			<Button variant="outline" size="sm" class="gap-1 text-xs" onclick={handleRefresh}>
+				<RefreshCw class="h-3.5 w-3.5" />
+				ลองเชื่อมต่อใหม่
+			</Button>
+		</div>
 	{/if}
 
 	<!-- Tactical HUD Overlay -->
-	{#if cameraStore.enabled && cameraStore.showHud && !imgError}
+	{#if cameraStore.isConnected && cameraStore.showHud && !imgError}
 		<!-- Top Bar: Status, Source Mode, Resolution & Clock -->
 		<div
 			class="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-3 text-xs"
 		>
 			<div class="flex items-center gap-2">
-				{#if cameraStore.isHardware}
+				{#if cameraStore.connectionState === 'live'}
 					<span
 						class="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/20 px-2 py-0.5 font-semibold text-emerald-400 backdrop-blur-xs"
 					>
@@ -223,19 +247,32 @@
 	>
 		<div class="flex items-center gap-1.5">
 			<!-- Power Toggle Button -->
-			<Button
-				variant={cameraStore.enabled ? 'secondary' : 'default'}
-				size="sm"
-				class="h-8 gap-1 text-xs"
-				onclick={() => cameraStore.togglePower()}
-				disabled={cameraStore.isLoading}
-			>
-				<Power class="h-3.5 w-3.5 {cameraStore.enabled ? 'text-emerald-400' : 'text-zinc-400'}" />
-				{cameraStore.enabled ? 'ปิดกล้อง' : 'เปิดกล้อง'}
-			</Button>
+			{#if cameraStore.connectionState === 'disconnected'}
+				<Button
+					variant="secondary"
+					size="sm"
+					class="h-8 gap-1 text-xs"
+					onclick={handleRefresh}
+					disabled={cameraStore.isLoading}
+				>
+					<RefreshCw class="h-3.5 w-3.5" />
+					ลองเชื่อมต่อ
+				</Button>
+			{:else}
+				<Button
+					variant={cameraStore.enabled ? 'secondary' : 'default'}
+					size="sm"
+					class="h-8 gap-1 text-xs"
+					onclick={() => cameraStore.togglePower()}
+					disabled={cameraStore.isLoading}
+				>
+					<Power class="h-3.5 w-3.5 {cameraStore.enabled ? 'text-emerald-400' : 'text-zinc-400'}" />
+					{cameraStore.enabled ? 'ปิดกล้อง' : 'เปิดกล้อง'}
+				</Button>
+			{/if}
 
 			<!-- Snapshot Capture Button -->
-			{#if cameraStore.enabled}
+			{#if cameraStore.isConnected}
 				<Button
 					variant="ghost"
 					size="sm"
@@ -305,3 +342,15 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.compact :global(.absolute.bottom-0) {
+		padding: 0.3rem;
+	}
+	.compact :global(.absolute.bottom-0 .h-8) {
+		height: 1.75rem;
+	}
+	.compact :global(.absolute.bottom-0 .w-8) {
+		width: 1.75rem;
+	}
+</style>
