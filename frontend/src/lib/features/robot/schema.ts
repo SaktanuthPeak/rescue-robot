@@ -23,7 +23,7 @@ export const robotStatusSchema = z.object({
 
 export const robotCommandSchema = z.object({
 	channel: z.enum(['motor', 'arm', 'all']),
-	code: z.number().int().min(0).max(10)
+	code: z.number().int().min(0).max(14)
 });
 
 export type RobotStatus = z.infer<typeof robotStatusSchema>;

@@ -12,7 +12,7 @@
 		ArrowUpRight,
 		Battery,
 		CircleStop,
-		Grip,
+		Droplets,
 		Link2,
 		Radio,
 		RefreshCw,
@@ -38,6 +38,13 @@
 	let commandInFlight = $state(false);
 	let heldCommand = $state<RobotCommand | null>(null);
 	let holdTimer: ReturnType<typeof setInterval> | null = null;
+
+	const armActionCode = {
+		pumpOn: 11,
+		pumpOff: 12,
+		headUp: 13,
+		headDown: 14
+	} as const;
 
 	const isOnline = $derived(status.state === 'streaming');
 	const statusAge = $derived(
@@ -331,7 +338,7 @@
 					<span class="section-index">02</span>
 					<h2>Actuator mount</h2>
 				</div>
-				<span class="panel-meta">nozzle mount channel</span>
+				<span class="panel-meta">arm, pump &amp; head controls</span>
 			</div>
 			<div class="device-readout">
 				<div><span>arm state</span><strong>{status.arm_status}</strong></div>
@@ -382,16 +389,34 @@
 					disabled={commandInFlight}><ArrowDown /><span>ลดแขนลง</span></button
 				>
 			</div>
-			<div class="gripper-controls">
+			<div class="actuator-controls">
 				<button
 					type="button"
-					onclick={() => send({ channel: 'arm', code: 9 })}
-					disabled={commandInFlight}><Grip size={18} /> เปิด nozzle mount</button
+					onclick={() => send({ channel: 'arm', code: armActionCode.pumpOn })}
+					disabled={commandInFlight}><Droplets size={18} /> เปิดปั๊ม</button
 				>
 				<button
 					type="button"
-					onclick={() => send({ channel: 'arm', code: 10 })}
-					disabled={commandInFlight}><Grip size={18} /> ปิด nozzle mount</button
+					onclick={() => send({ channel: 'arm', code: armActionCode.pumpOff })}
+					disabled={commandInFlight}><Droplets size={18} /> ปิดปั๊ม</button
+				>
+				<button
+					class={buttonClass('head-up')}
+					type="button"
+					onpointerdown={() => press('arm', armActionCode.headUp, 'head-up')}
+					onpointerup={() => release('arm')}
+					onpointercancel={() => release('arm')}
+					onpointerleave={() => activeControl === 'head-up' && release('arm')}
+					disabled={commandInFlight}><ArrowUp size={18} /> หัวขึ้น</button
+				>
+				<button
+					class={buttonClass('head-down')}
+					type="button"
+					onpointerdown={() => press('arm', armActionCode.headDown, 'head-down')}
+					onpointerup={() => release('arm')}
+					onpointercancel={() => release('arm')}
+					onpointerleave={() => activeControl === 'head-down' && release('arm')}
+					disabled={commandInFlight}><ArrowDown size={18} /> หัวลง</button
 				>
 			</div>
 		</section>
@@ -716,14 +741,14 @@
 	.arm-stop {
 		min-height: 4.1rem !important;
 	}
-	.gripper-controls {
+	.actuator-controls {
 		border-top: 1px solid var(--border);
 		padding-top: 1rem;
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 0.5rem;
 	}
-	.gripper-controls button {
+	.actuator-controls button {
 		border: 1px solid var(--border);
 		border-radius: 0.35rem;
 		background: var(--secondary);
@@ -736,7 +761,7 @@
 		font-size: 0.76rem;
 		transition: 0.2s ease;
 	}
-	.gripper-controls button:hover {
+	.actuator-controls button:hover {
 		color: var(--primary);
 		border-color: var(--primary);
 	}
