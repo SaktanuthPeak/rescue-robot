@@ -1,6 +1,6 @@
 """RB2/RB3 receiver telemetry protocol tests."""
 
-from apiapp.infrastructure.receiver_canbus import parse_line
+from apiapp.infrastructure.receiver_canbus import STATUS_NAMES, parse_line
 
 
 def _line(payload: str) -> bytes:
@@ -11,12 +11,13 @@ def _line(payload: str) -> bytes:
 
 
 def test_parses_arm_controller_rb2_frame() -> None:
-    sample = parse_line(_line("RB2,1,1,10,1,0,0,42"))
+    sample = parse_line(_line("RB2,1,1,14,1,0,0,42"))
 
     assert sample is not None
     assert sample.motor_code == 1
     assert sample.motor_alive is True
-    assert sample.arm_code == 10
+    assert sample.arm_code == 14
+    assert STATUS_NAMES[sample.arm_code] == "HEAD_DOWN"
     assert sample.arm_alive is True
     assert sample.battery_millivolts == 0
     assert sample.battery_adc == 0
@@ -26,4 +27,3 @@ def test_parses_arm_controller_rb2_frame() -> None:
 
 def test_rejects_receiver_frame_with_bad_checksum() -> None:
     assert parse_line(b"RB2,1,1,10,1,0,0,42*00\n") is None
-

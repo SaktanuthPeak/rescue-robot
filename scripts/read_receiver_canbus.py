@@ -31,8 +31,12 @@ STATUS_NAMES = {
     6: "FORWARD_RIGHT",
     7: "BACKWARD_LEFT",
     8: "BACKWARD_RIGHT",
-    9: "RELEASE",
-    10: "CLAMP",
+    9: "SPIN_LEFT",
+    10: "SPIN_RIGHT",
+    11: "PUMP_ON",
+    12: "PUMP_OFF",
+    13: "HEAD_UP",
+    14: "HEAD_DOWN",
 }
 
 

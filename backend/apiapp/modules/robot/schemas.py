@@ -30,7 +30,7 @@ class RobotStatusResponse(BaseModel):
 
 class RobotCommandRequest(BaseModel):
     channel: RobotChannel
-    code: int = Field(ge=0, le=10)
+    code: int = Field(ge=0, le=14)
 
 
 class RobotCommandResponse(BaseModel):
