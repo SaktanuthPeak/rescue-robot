@@ -1,27 +1,12 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import {
-		AlertTriangle,
-		ArrowDown,
-		ArrowDownLeft,
-		ArrowDownRight,
-		ArrowLeft,
-		ArrowRight,
-		ArrowUp,
-		ArrowUpLeft,
-		Battery,
-		CircleStop,
-		Droplets,
-		Link2,
-		Radio,
-		RefreshCw,
-		Wifi,
-		WifiOff
-	} from 'lucide-svelte';
+	import { AlertTriangle, Battery, Link2, Radio, RefreshCw, Wifi, WifiOff } from 'lucide-svelte';
 
 	import AppContainer from '$lib/components/app-container.svelte';
 	import { CameraCard } from '$lib/features/camera';
 	import { sendRobotCommand, getRobotStatus } from '$lib/features/robot/api';
+	import ArmPreview from '$lib/features/robot/ui/arm-preview.svelte';
+	import MecanumDrivePreview from '$lib/features/robot/ui/mecanum-drive-preview.svelte';
 	import CompactFieldMonitor from '$lib/features/telemetry/components/compact-field-monitor.svelte';
 	import {
 		INITIAL_ROBOT_STATUS,
@@ -34,17 +19,7 @@
 	let refreshing = $state(false);
 	let error = $state<string | null>(null);
 	let commandError = $state<string | null>(null);
-	let activeControl = $state<string | null>(null);
 	let commandInFlight = $state(false);
-	let heldCommand = $state<RobotCommand | null>(null);
-	let holdTimer: ReturnType<typeof setInterval> | null = null;
-
-	const armActionCode = {
-		pumpOn: 11,
-		pumpOff: 12,
-		headUp: 13,
-		headDown: 14
-	} as const;
 
 	const isOnline = $derived(status.state === 'streaming');
 	const statusAge = $derived(
@@ -113,41 +88,8 @@
 		}
 	}
 
-	async function press(channel: 'motor' | 'arm', code: number, key: string) {
-		if (commandInFlight) return;
-		activeControl = key;
-		heldCommand = { channel, code };
-		await send(heldCommand);
-		if (activeControl !== key) return;
-		if (holdTimer === null) {
-			holdTimer = setInterval(() => {
-				if (heldCommand) void send(heldCommand);
-			}, 150);
-		}
-	}
-
-	async function release(channel: 'motor' | 'arm') {
-		if (holdTimer !== null) {
-			clearInterval(holdTimer);
-			holdTimer = null;
-		}
-		heldCommand = null;
-		activeControl = null;
-		await send({ channel, code: 0 });
-	}
-
 	async function emergencyStop() {
-		if (holdTimer !== null) {
-			clearInterval(holdTimer);
-			holdTimer = null;
-		}
-		heldCommand = null;
-		activeControl = null;
 		await send({ channel: 'all', code: 0 });
-	}
-
-	function buttonClass(key: string) {
-		return `control-button ${activeControl === key ? 'is-active' : ''}`;
 	}
 </script>
 
@@ -226,187 +168,49 @@
 				<CameraCard compact />
 			</section>
 
-			<div class="control-layout">
-				<section class="panel driving-panel">
-					<div class="panel-heading">
-						<div>
-							<span class="section-index">01</span>
-							<h2>Drive</h2>
-						</div>
-						<span class="panel-meta">hold to move, release to stop</span>
+			<section class="panel driving-panel">
+				<div class="panel-heading">
+					<div>
+						<span class="section-index">01</span>
+						<h2>Drive</h2>
 					</div>
-					<div class="device-readout">
-						<div><span>motor state</span><strong>{status.motor_status}</strong></div>
-						<div class:good={status.motor_can_alive}>
-							<span>CAN heartbeat</span><strong
-								>{status.motor_can_alive ? 'LIVE' : 'TIMEOUT'}</strong
-							>
-						</div>
+					<span class="panel-meta">mecanum live preview</span>
+				</div>
+				<div class="device-readout">
+					<div><span>motor state</span><strong>{status.motor_status}</strong></div>
+					<div class:good={status.motor_can_alive}>
+						<span>CAN heartbeat</span><strong>{status.motor_can_alive ? 'LIVE' : 'TIMEOUT'}</strong>
 					</div>
-					<div class="d-pad" aria-label="Motor directional controls">
-						<button
-							class={buttonClass('motor-forward-left')}
-							type="button"
-							aria-label="Forward left"
-							onpointerdown={() => press('motor', 5, 'motor-forward-left')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-forward-left' && release('motor')}
-							disabled={commandInFlight}><ArrowUpLeft /></button
-						>
-						<button
-							class={buttonClass('motor-forward')}
-							type="button"
-							aria-label="Forward"
-							onpointerdown={() => press('motor', 1, 'motor-forward')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-forward' && release('motor')}
-							disabled={commandInFlight}><ArrowUp /></button
-						>
-						<span class="d-pad-spacer" aria-hidden="true"></span>
-						<button
-							class={buttonClass('motor-left')}
-							type="button"
-							aria-label="Left"
-							onpointerdown={() => press('motor', 3, 'motor-left')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-left' && release('motor')}
-							disabled={commandInFlight}><ArrowLeft /></button
-						>
-						<button
-							class="stop-button"
-							type="button"
-							aria-label="Stop motor"
-							onclick={() => release('motor')}><CircleStop /></button
-						>
-						<button
-							class={buttonClass('motor-right')}
-							type="button"
-							aria-label="Right"
-							onpointerdown={() => press('motor', 4, 'motor-right')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-right' && release('motor')}
-							disabled={commandInFlight}><ArrowRight /></button
-						>
-						<button
-							class={buttonClass('motor-backward-left')}
-							type="button"
-							aria-label="Backward left"
-							onpointerdown={() => press('motor', 7, 'motor-backward-left')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-backward-left' && release('motor')}
-							disabled={commandInFlight}><ArrowDownLeft /></button
-						>
-						<button
-							class={buttonClass('motor-backward')}
-							type="button"
-							aria-label="Backward"
-							onpointerdown={() => press('motor', 2, 'motor-backward')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-backward' && release('motor')}
-							disabled={commandInFlight}><ArrowDown /></button
-						>
-						<button
-							class={buttonClass('motor-backward-right')}
-							type="button"
-							aria-label="Backward right"
-							onpointerdown={() => press('motor', 8, 'motor-backward-right')}
-							onpointerup={() => release('motor')}
-							onpointercancel={() => release('motor')}
-							onpointerleave={() => activeControl === 'motor-backward-right' && release('motor')}
-							disabled={commandInFlight}><ArrowDownRight /></button
-						>
-					</div>
-					<p class="control-hint">
-						ปุ่มทิศทางจะส่งคำสั่งค้างจนกว่าจะปล่อย เพื่อให้หยุดเมื่อผู้ควบคุมเลิกกด
-					</p>
-				</section>
+				</div>
+				<MecanumDrivePreview
+					motorCode={status.motor_code}
+					active={isOnline && status.motor_can_alive}
+					stale={!isOnline}
+					compact
+				/>
+			</section>
 
-				<section class="panel arm-panel">
-					<div class="panel-heading">
-						<div>
-							<span class="section-index">02</span>
-							<h2>Actuator mount</h2>
-						</div>
-						<span class="panel-meta">arm, pump &amp; head controls</span>
+			<section class="panel arm-panel">
+				<div class="panel-heading">
+					<div>
+						<span class="section-index">02</span>
+						<h2>Actuator mount</h2>
 					</div>
-					<div class="device-readout">
-						<div><span>arm state</span><strong>{status.arm_status}</strong></div>
-						<div class:good={status.arm_can_alive}>
-							<span>CAN heartbeat</span><strong>{status.arm_can_alive ? 'LIVE' : 'TIMEOUT'}</strong>
-						</div>
+					<span class="panel-meta">3-axis arm live preview</span>
+				</div>
+				<div class="device-readout">
+					<div><span>arm state</span><strong>{status.arm_status}</strong></div>
+					<div class:good={status.arm_can_alive}>
+						<span>CAN heartbeat</span><strong>{status.arm_can_alive ? 'LIVE' : 'TIMEOUT'}</strong>
 					</div>
-					<div class="arm-controls">
-						<div class="arm-row">
-							<button
-								class={buttonClass('arm-left')}
-								type="button"
-								onpointerdown={() => press('arm', 3, 'arm-left')}
-								onpointerup={() => release('arm')}
-								onpointercancel={() => release('arm')}
-								onpointerleave={() => activeControl === 'arm-left' && release('arm')}
-								disabled={commandInFlight}><ArrowLeft /><span>ซ้าย</span></button
-							>
-							<button class="stop-button arm-stop" type="button" onclick={() => release('arm')}
-								><CircleStop /><span>หยุด</span></button
-							>
-							<button
-								class={buttonClass('arm-right')}
-								type="button"
-								onpointerdown={() => press('arm', 4, 'arm-right')}
-								onpointerup={() => release('arm')}
-								onpointercancel={() => release('arm')}
-								onpointerleave={() => activeControl === 'arm-right' && release('arm')}
-								disabled={commandInFlight}><ArrowRight /><span>ขวา</span></button
-							>
-						</div>
-						<button
-							class={buttonClass('arm-backward')}
-							type="button"
-							onpointerdown={() => press('arm', 2, 'arm-backward')}
-							onpointerup={() => release('arm')}
-							onpointercancel={() => release('arm')}
-							onpointerleave={() => activeControl === 'arm-backward' && release('arm')}
-							disabled={commandInFlight}><ArrowDown /><span>ลดแขนลง</span></button
-						>
-					</div>
-					<div class="actuator-controls">
-						<button
-							type="button"
-							onclick={() => send({ channel: 'arm', code: armActionCode.pumpOn })}
-							disabled={commandInFlight}><Droplets size={18} /> เปิดปั๊ม</button
-						>
-						<button
-							type="button"
-							onclick={() => send({ channel: 'arm', code: armActionCode.pumpOff })}
-							disabled={commandInFlight}><Droplets size={18} /> ปิดปั๊ม</button
-						>
-						<button
-							class={buttonClass('head-up')}
-							type="button"
-							onpointerdown={() => press('arm', armActionCode.headUp, 'head-up')}
-							onpointerup={() => release('arm')}
-							onpointercancel={() => release('arm')}
-							onpointerleave={() => activeControl === 'head-up' && release('arm')}
-							disabled={commandInFlight}><ArrowUp size={18} /> หัวขึ้น</button
-						>
-						<button
-							class={buttonClass('head-down')}
-							type="button"
-							onpointerdown={() => press('arm', armActionCode.headDown, 'head-down')}
-							onpointerup={() => release('arm')}
-							onpointercancel={() => release('arm')}
-							onpointerleave={() => activeControl === 'head-down' && release('arm')}
-							disabled={commandInFlight}><ArrowDown size={18} /> หัวลง</button
-						>
-					</div>
-				</section>
-			</div>
+				</div>
+				<ArmPreview
+					armCode={status.arm_code}
+					active={isOnline && status.arm_can_alive}
+					stale={!isOnline}
+					compact
+				/>
+			</section>
 		</div>
 	</div>
 </AppContainer>
@@ -598,8 +402,7 @@
 		align-items: start;
 		gap: 0.9rem;
 	}
-	.workspace-layout > .overview-layout,
-	.workspace-layout > .control-layout {
+	.workspace-layout > .overview-layout {
 		display: contents;
 	}
 	.workspace-layout .driving-panel {
@@ -618,12 +421,8 @@
 		width: 100%;
 		min-width: 0;
 	}
-	.control-layout,
 	.overview-layout {
 		margin: 0;
-	}
-	.d-pad-spacer {
-		min-height: 3.15rem;
 	}
 	.panel {
 		border-radius: 0.35rem;
@@ -676,113 +475,6 @@
 	}
 	.device-readout .good strong {
 		color: var(--primary);
-	}
-	.d-pad {
-		width: min(100%, 320px);
-		margin: 0.1rem auto 0.65rem;
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 0.3rem;
-	}
-	.control-button,
-	.stop-button {
-		min-height: 3.15rem;
-		border: 1px solid var(--border);
-		border-radius: 0.35rem;
-		background: var(--secondary);
-		color: var(--foreground);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition:
-			transform 0.15s ease,
-			background 0.2s ease,
-			border-color 0.2s ease,
-			color 0.2s ease;
-	}
-	.control-button:hover {
-		background: var(--accent);
-		border-color: var(--primary);
-		color: var(--foreground);
-	}
-	.control-button:active,
-	.control-button.is-active {
-		transform: translateY(2px) scale(0.98);
-		background: color-mix(in oklab, var(--primary), var(--card) 55%);
-		border-color: var(--primary);
-		color: var(--primary-foreground);
-	}
-	.control-button :global(svg) {
-		width: 1.15rem;
-		height: 1.15rem;
-	}
-	.stop-button {
-		color: var(--destructive);
-		border-color: color-mix(in oklab, var(--destructive), transparent 45%);
-		background: color-mix(in oklab, var(--destructive), transparent 88%);
-	}
-	.stop-button:hover {
-		background: color-mix(in oklab, var(--destructive), transparent 75%);
-		border-color: var(--destructive);
-	}
-	.control-hint {
-		text-align: center;
-		color: var(--muted-foreground);
-		font-size: 0.65rem;
-		line-height: 1.45;
-		max-width: 33rem;
-		margin: 0 auto;
-	}
-	.arm-controls {
-		width: min(100%, 360px);
-		margin: 0.2rem auto 0.7rem;
-		display: grid;
-		gap: 0.3rem;
-	}
-	.arm-controls button {
-		min-height: 2.55rem;
-	}
-	.arm-controls span {
-		font-size: 0.78rem;
-	}
-	.arm-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr 1fr;
-		gap: 0.3rem;
-	}
-	.arm-row button {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.35rem;
-		flex-direction: column;
-	}
-	.arm-stop {
-		min-height: 2.95rem !important;
-	}
-	.actuator-controls {
-		border-top: 1px solid var(--border);
-		padding-top: 0.7rem;
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.3rem;
-	}
-	.actuator-controls button {
-		border: 1px solid var(--border);
-		border-radius: 0.35rem;
-		background: var(--secondary);
-		color: var(--foreground);
-		min-height: 2.15rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4rem;
-		font-size: 0.76rem;
-		transition: 0.2s ease;
-	}
-	.actuator-controls button:hover {
-		color: var(--primary);
-		border-color: var(--primary);
 	}
 	.emergency-button {
 		background: var(--destructive);
