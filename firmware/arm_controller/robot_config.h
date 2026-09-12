@@ -36,8 +36,8 @@ constexpr uint8_t PS2_CLK_PIN = A3;
 
 // -----------------------------------------
 // Extra peripherals
-// ย้ายไปใช้พินสูงๆ ของบอร์ด Mega เพื่อความเป็นระเบียบและไม่ชนกัน
-// -----------------------------------------8778yuuuuuuuuu666666666666666666666666666666666666uuuuuuuu0-hj
+// -----------------------------------------
+constexpr uint8_t RELAY_PUMP_PIN = 4; // ขาควบคุม Relay ปั๊มน้ำ
 constexpr uint8_t BUZZER_PIN = 44;
 constexpr uint8_t SERVO_PIN = 45;
 constexpr uint8_t ULTRASONIC_TRIG_PIN = 46;
