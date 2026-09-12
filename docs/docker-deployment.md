@@ -67,10 +67,11 @@ docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml \
   -f docker-compose.rpi-ap.yml up -d
 ```
 
-## With the receiver-canbus Arduino attached
+## With the arm-controller CAN receiver Arduino attached
 
-The receiver-canbus mode passes the USB device into the backend container and reads the
-single RB3 stream for IR proximity, battery and CAN status. It is a separate overlay because
+The arm-controller receiver mode passes the USB device into the backend container and reads
+the RB2 stream for motor/arm CAN status. A receiver with analog sensors may emit RB3 as well;
+both formats are accepted. It is a separate overlay because
 compose refuses to start when a `devices:` path is missing (that would break every
 bench run without hardware):
 
