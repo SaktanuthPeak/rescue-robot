@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const robotStatusSchema = z.object({
 	type: z.literal('robot_status'),
+	protocol: z.enum(['RB1', 'RB2', 'RB3', 'RB4']).nullable(),
 	port: z.string(),
 	baudrate: z.number().int(),
 	state: z.enum(['disabled', 'connecting', 'streaming', 'disconnected']),
@@ -14,6 +15,10 @@ export const robotStatusSchema = z.object({
 	arm_code: z.number().int(),
 	arm_status: z.string(),
 	arm_can_alive: z.boolean(),
+	arm_axis_1_pwm: z.number().int().min(0).max(4095).nullable(),
+	arm_axis_2_pwm: z.number().int().min(0).max(4095).nullable(),
+	arm_axis_3_pwm: z.number().int().min(0).max(4095).nullable(),
+	arm_pump_on: z.boolean().nullable(),
 	battery_millivolts: z.number().int().nonnegative(),
 	battery_volts: z.number().nonnegative(),
 	battery_adc: z.number().int().nonnegative(),
@@ -31,6 +36,7 @@ export type RobotCommand = z.infer<typeof robotCommandSchema>;
 
 export const INITIAL_ROBOT_STATUS: RobotStatus = {
 	type: 'robot_status',
+	protocol: null,
 	port: '/dev/ttyACM0',
 	baudrate: 115200,
 	state: 'connecting',
@@ -43,6 +49,10 @@ export const INITIAL_ROBOT_STATUS: RobotStatus = {
 	arm_code: -1,
 	arm_status: 'NO_DATA',
 	arm_can_alive: false,
+	arm_axis_1_pwm: null,
+	arm_axis_2_pwm: null,
+	arm_axis_3_pwm: null,
+	arm_pump_on: null,
 	battery_millivolts: 0,
 	battery_volts: 0,
 	battery_adc: 0,

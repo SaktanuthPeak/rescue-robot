@@ -1,8 +1,12 @@
 """USB serial transport for the arm-controller CAN receiver Arduino.
 
-The receiver emits one RB2 or RB3 snapshot every 100 ms:
+The receiver emits one RB2, RB3, or RB4 snapshot every 100 ms:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,seq*CK
+    RB4,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,axis1_pwm,axis2_pwm,axis3_pwm,pump_on,seq*CK
+
+RB4 is the arm-controller format. The three axis fields are the latest PCA9685
+PWM commands (not encoder-measured angles), and ``pump_on`` is 0 or 1.
 
 This transport owns the receiver USB port.  The ``receiver`` flame source subscribes
 to it, so the robot and flame dashboards consume one decoded stream without opening
@@ -48,6 +52,7 @@ ReceiverParseErrorSink = Callable[[], None]
 
 @dataclass(frozen=True, slots=True)
 class ReceiverSample:
+    protocol: Literal["RB1", "RB2", "RB3", "RB4"]
     motor_code: int
     motor_alive: bool
     arm_code: int
@@ -59,14 +64,18 @@ class ReceiverSample:
     flame_rear: int
     flame_left: int
     flame_valid: bool
+    arm_axis_1_pwm: int | None
+    arm_axis_2_pwm: int | None
+    arm_axis_3_pwm: int | None
+    arm_pump_on: bool | None
     sequence: int
     received_at: datetime
 
 
 def parse_line(raw: bytes) -> ReceiverSample | None:
-    """Decode one RB1/RB2/RB3 line and reject noise, malformed fields, or bad checksum."""
+    """Decode one RB1/RB2/RB3/RB4 line and reject malformed fields or checksums."""
     text = raw.decode("ascii", errors="ignore").strip()
-    if not text.startswith(("RB1,", "RB2,", "RB3,")):
+    if not text.startswith(("RB1,", "RB2,", "RB3,", "RB4,")):
         return None
 
     payload, separator, checksum_text = text.partition("*")
@@ -91,6 +100,8 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         return None
     if fields[0] == "RB3" and len(fields) != 12:
         return None
+    if fields[0] == "RB4" and len(fields) != 12:
+        return None
 
     try:
         motor_code = int(fields[1])
@@ -102,6 +113,8 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             battery_adc = int(fields[6])
             flame_front = flame_right = flame_rear = flame_left = 0
             flame_valid = False
+            arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
+            arm_pump_on = None
             sequence = int(fields[7])
         elif fields[0] == "RB3":
             battery_millivolts = int(fields[5])
@@ -111,12 +124,29 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             flame_rear = int(fields[9])
             flame_left = int(fields[10])
             flame_valid = True
+            arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
+            arm_pump_on = None
+            sequence = int(fields[11])
+        elif fields[0] == "RB4":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
+            arm_axis_1_pwm = int(fields[7])
+            arm_axis_2_pwm = int(fields[8])
+            arm_axis_3_pwm = int(fields[9])
+            pump_on_value = int(fields[10])
+            if pump_on_value not in (0, 1):
+                return None
+            arm_pump_on = bool(pump_on_value)
             sequence = int(fields[11])
         else:
             battery_millivolts = 0
             battery_adc = 0
             flame_front = flame_right = flame_rear = flame_left = 0
             flame_valid = False
+            arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
+            arm_pump_on = None
             sequence = int(fields[5])
     except ValueError:
         return None
@@ -131,11 +161,16 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         or battery_millivolts < 0
         or not 0 <= battery_adc <= 1023
         or not all(0 <= value <= 1023 for value in (flame_front, flame_right, flame_rear, flame_left))
+        or any(
+            value is not None and not 0 <= value <= 4095
+            for value in (arm_axis_1_pwm, arm_axis_2_pwm, arm_axis_3_pwm)
+        )
         or sequence < 0
     ):
         return None
 
     return ReceiverSample(
+        protocol=fields[0],
         motor_code=motor_code,
         motor_alive=bool(motor_alive),
         arm_code=arm_code,
@@ -147,6 +182,10 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         flame_rear=flame_rear,
         flame_left=flame_left,
         flame_valid=flame_valid,
+        arm_axis_1_pwm=arm_axis_1_pwm,
+        arm_axis_2_pwm=arm_axis_2_pwm,
+        arm_axis_3_pwm=arm_axis_3_pwm,
+        arm_pump_on=arm_pump_on,
         sequence=sequence,
         received_at=datetime.now(UTC),
     )
@@ -289,6 +328,7 @@ class ReceiverCanbusService:
 
         return {
             "type": "robot_status",
+            "protocol": sample.protocol if sample else None,
             "port": settings.ROBOT_SERIAL_PORT if settings else "/dev/ttyACM0",
             "baudrate": settings.ROBOT_SERIAL_BAUDRATE if settings else 115200,
             "state": effective_state,
@@ -301,6 +341,10 @@ class ReceiverCanbusService:
             "arm_code": sample.arm_code if sample else -1,
             "arm_status": STATUS_NAMES.get(sample.arm_code, "NO_DATA") if sample else "NO_DATA",
             "arm_can_alive": sample.arm_alive if sample else False,
+            "arm_axis_1_pwm": sample.arm_axis_1_pwm if sample else None,
+            "arm_axis_2_pwm": sample.arm_axis_2_pwm if sample else None,
+            "arm_axis_3_pwm": sample.arm_axis_3_pwm if sample else None,
+            "arm_pump_on": sample.arm_pump_on if sample else None,
             "battery_millivolts": sample.battery_millivolts if sample else 0,
             "battery_volts": round(sample.battery_millivolts / 1000, 3) if sample else 0.0,
             "battery_adc": sample.battery_adc if sample else 0,
@@ -342,7 +386,7 @@ class ReceiverCanbusService:
                         continue
                     sample = parse_line(line)
                     if sample is None:
-                        if line.lstrip().startswith((b"RB1,", b"RB2,", b"RB3,")):
+                        if line.lstrip().startswith((b"RB1,", b"RB2,", b"RB3,", b"RB4,")):
                             with self._lock:
                                 self._parse_errors += 1
                             self._notify_parse_error()

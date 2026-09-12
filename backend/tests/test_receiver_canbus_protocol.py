@@ -27,3 +27,24 @@ def test_parses_arm_controller_rb2_frame() -> None:
 
 def test_rejects_receiver_frame_with_bad_checksum() -> None:
     assert parse_line(b"RB2,1,1,10,1,0,0,42*00\n") is None
+
+
+def test_parses_arm_controller_rb4_pose_frame() -> None:
+    sample = parse_line(_line("RB4,-1,0,13,1,0,0,305,278,331,1,43"))
+
+    assert sample is not None
+    assert sample.protocol == "RB4"
+    assert sample.motor_code == -1
+    assert sample.motor_alive is False
+    assert sample.arm_code == 13
+    assert sample.arm_alive is True
+    assert sample.arm_axis_1_pwm == 305
+    assert sample.arm_axis_2_pwm == 278
+    assert sample.arm_axis_3_pwm == 331
+    assert sample.arm_pump_on is True
+    assert sample.sequence == 43
+
+
+def test_rejects_arm_controller_rb4_invalid_pose() -> None:
+    assert parse_line(_line("RB4,-1,0,13,1,0,0,4096,278,331,0,43")) is None
+    assert parse_line(_line("RB4,-1,0,13,1,0,0,305,278,331,2,43")) is None
