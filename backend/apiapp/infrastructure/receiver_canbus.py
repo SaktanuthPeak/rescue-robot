@@ -1,6 +1,7 @@
-"""USB serial transport for the receiver-canbus Arduino.
+"""USB serial transport for the arm-controller CAN receiver Arduino.
 
-The receiver emits one RB3 snapshot every 100 ms:
+The receiver emits one RB2 or RB3 snapshot every 100 ms:
+    RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,seq*CK
 
 This transport owns the receiver USB port.  The ``receiver`` flame source subscribes

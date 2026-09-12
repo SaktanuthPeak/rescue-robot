@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Read RB3 telemetry from firmware/receiver-canbus over USB serial.
+"""Read RB2/RB3 telemetry from a CAN receiver over USB serial.
 
-The firmware emits:
+The firmware emits either:
+    RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
+or:
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,
     flame_front,flame_right,flame_rear,flame_left,seq*CK
 
@@ -146,7 +148,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Display receiver-canbus USB telemetry")
+    parser = argparse.ArgumentParser(description="Display CAN receiver USB telemetry")
     parser.add_argument("--port", default="/dev/ttyACM0", help="USB serial device")
     parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
     parser.add_argument("--json", action="store_true", help="Print one JSON object per frame")

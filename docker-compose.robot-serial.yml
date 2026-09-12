@@ -1,4 +1,4 @@
-# USB serial override for firmware/receiver-canbus.
+# USB serial override for firmware/arm_controller.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.rpi-ap.yml \
 #     -f docker-compose.robot-serial.yml up -d --build
@@ -7,7 +7,8 @@ services:
   backend:
     environment:
       ROBOT_SERIAL_ENABLED: "True"
-      # RB3 contains motor, arm, battery and all four flame ADC values.
+      # arm_controller emits RB2 for motor/arm status. A receiver with analog
+      # sensors may emit RB3; both are parsed by the same service.
       # The receiver service is the only owner of this USB serial port.
       TELEMETRY_SOURCE: "receiver"
     devices:
