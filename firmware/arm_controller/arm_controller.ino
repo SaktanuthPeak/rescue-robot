@@ -1,5 +1,6 @@
 #include <SPI.h>
 #include <mcp_can.h>
+#include "motor.h"
 #include "PCA9685_Control.h" // นำเข้าไลบรารีคุม Servo
 
 // ---------------- CAN configuration ----------------
@@ -23,6 +24,7 @@ int servo2_pwm = 305; // ช่อง 2: Gripper หนีบ-ปล่อย
 unsigned long last_servo_update_ms = 0;
 const unsigned long SERVO_UPDATE_INTERVAL = 15; // ความเร็วในการขยับแขนกล (ค่าน้อย = ขยับไว)
 
+// ---------------- Status definition ----------------
 enum PS2_Status : uint8_t
 {
     STOP = 0,
@@ -34,19 +36,46 @@ enum PS2_Status : uint8_t
     FORWARD_RIGHT = 6,
     BACKWARD_LEFT = 7,
     BACKWARD_RIGHT = 8,
-    Head_Up = 9,
-    Head_Down = 10,
-    PUMP_ON = 11,
-    PUMP_OFF = 12,
-    FLASHLIGHT_ON = 13,
-    FLASHLIGHT_OFF = 14
+    Release = 9,
+    Clamp = 10
 };
 
+unsigned long lastMotorMessageTime = 0;
 unsigned long lastArmMessageTime = 0;
 
+bool motorCANAlive = false;
 bool armCANAlive = false;
 
+int lastMotorStatus = -1;
 int lastArmStatus = -1;
+
+// ==================================================
+// ฟังก์ชันเรียกใช้งาน Motor ตาม Status ที่รับมาจาก CAN
+// ==================================================
+void apply_motor_from_status(PS2_Status current)
+{
+    switch (current)
+    {
+    case FORWARD: motor_forward(); break;
+    case BACKWARD: motor_backward(); break;
+    case LEFT: motor_slide_left(); break;
+    case RIGHT: motor_slide_right(); break;
+    case FORWARD_LEFT: motor_forward_left(); break;
+    case FORWARD_RIGHT: motor_forward_right(); break;
+    case BACKWARD_LEFT: motor_backward_left(); break;
+    case BACKWARD_RIGHT: motor_backward_right(); break;
+    case STOP:
+    default: motor_stop(); break;
+    }
+}
+
+// ==================================================
+// ตรวจสอบความถูกต้องของข้อมูล (ป้องกันค่าขยะ)
+// ==================================================
+bool is_valid_motor_status(byte value)
+{
+    return value <= BACKWARD_RIGHT;
+}
 
 bool is_valid_arm_status(byte value)
 {
@@ -62,6 +91,24 @@ void process_can_message(unsigned long receivedId, byte dataLength, byte *rxData
 
     byte receivedStatus = rxData[0];
 
+    // ---------------- คำสั่งควบคุมรถ ----------------
+    if (receivedId == CAN_ID_MOTOR)
+    {
+        if (!is_valid_motor_status(receivedStatus))
+        {
+            motor_stop();
+            return;
+        }
+
+        lastMotorMessageTime = millis();
+        motorCANAlive = true;
+
+        if (receivedStatus != lastMotorStatus)
+        {
+            lastMotorStatus = receivedStatus;
+            apply_motor_from_status((PS2_Status)receivedStatus);
+        }
+    }
     // ---------------- คำสั่งควบคุมแขนกล ----------------
     else if (receivedId == CAN_ID_ARM)
     {
@@ -83,6 +130,9 @@ void setup()
 {
     Serial.begin(115200);
 
+    // --- เริ่มต้นระบบมอเตอร์ ---
+    motor_init();
+    
     // --- เริ่มต้นระบบแขนกล (PCA9685) ---
     pca.begin();
     pca.setPWMFreq(50.0);
@@ -101,6 +151,8 @@ void setup()
     CAN0.setMode(MCP_NORMAL);
     
     Serial.println("MCP2515 initialized. CAN receiver ready");
+
+    motor_stop();
 }
 
 // ==================================================
@@ -108,17 +160,32 @@ void setup()
 // ==================================================
 void loop()
 {
-    // 1. รับข้อมูลจาก CAN Bus
-    while (digitalRead(CAN_INT_PIN) == LOW)
+    // 1. รับข้อมูลจาก CAN Bus แบบ Polling (ถามหาข้อมูลตลอดเวลา)
+    if (CAN0.checkReceive() == CAN_MSGAVAIL)
     {
         unsigned long receivedId;
         byte dataLength;
         byte rxData[8];
 
         byte result = CAN0.readMsgBuf(&receivedId, &dataLength, rxData);
-        if (result != CAN_OK) break;
+        
+        if (result == CAN_OK) 
+        {
+            // ---------- เริ่มส่วน Debug ข้อความ CAN ----------
+            Serial.print("CAN RX | ID: 0x");
+            Serial.print(receivedId, HEX); // ปริ้นท์ ID เป็นฐาน 16 (เช่น 100 หรือ 101)
+            Serial.print(" | Len: ");
+            Serial.print(dataLength);
+            Serial.print(" | Status Data: ");
+            if (dataLength > 0) {
+                Serial.print(rxData[0]); // ปริ้นท์ค่า Status ที่รับมาได้
+            }
+            Serial.println();
+            // ---------- จบส่วน Debug ----------
 
-        process_can_message(receivedId, dataLength, rxData);
+            // นำข้อมูลไปสั่งมอเตอร์/แขนกลต่อ
+            process_can_message(receivedId, dataLength, rxData);
+        }
     }
 
     unsigned long currentTime = millis();
@@ -146,10 +213,10 @@ void loop()
         }
 
         // อัปเดต Servo 2 (Gripper หนีบ-ปล่อย)
-        if (lastArmStatus == Head_Up) {
+        if (lastArmStatus == Clamp) {
             servo2_pwm -= 2; servo_changed = true; 
         } 
-        else if (lastArmStatus == Head_Down) {
+        else if (lastArmStatus == Release) {
             servo2_pwm += 2; servo_changed = true;
         }
 
@@ -166,6 +233,16 @@ void loop()
             pca.setPWM(2, 0, servo2_pwm);
         }
     }
+
+    // ---------------- Fail-safe ระบบความปลอดภัย ----------------
+    if (motorCANAlive && (currentTime - lastMotorMessageTime > CAN_TIMEOUT))
+    {
+        motorCANAlive = false;
+        lastMotorStatus = -1;
+        motor_stop();
+        Serial.println("WARNING: Motor CAN timeout - Force Stopped");
+    }
+
     if (armCANAlive && (currentTime - lastArmMessageTime > CAN_TIMEOUT))
     {
         armCANAlive = false;
