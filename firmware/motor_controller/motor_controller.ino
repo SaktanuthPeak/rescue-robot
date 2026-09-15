@@ -96,7 +96,6 @@ void process_can_message(unsigned long receivedId, byte dataLength, byte *rxData
 // ==================================================
 void send_telemetry()
 {
-    // จัดเตรียมข้อมูลส่งกลับทาง CAN Bus (CAN_ID_TELEMETRY: 0x102)
     int16_t spd_fl = (int16_t)encoder_get_speed_fl();
     int16_t spd_fr = (int16_t)encoder_get_speed_fr();
     int16_t spd_bl = (int16_t)encoder_get_speed_bl();
@@ -114,9 +113,23 @@ void send_telemetry()
 
     CAN0.sendMsgBuf(CAN_ID_TELEMETRY, 0, 8, canTx);
 
-    // พิมพ์ค่าตรวจสอบทาง Serial Monitor
     Serial.print("M: ");
-    Serial.print(lastMotorStatus);
+    switch (lastMotorStatus)
+    {
+        case STOP:           Serial.print("STOP      "); break;
+        case FORWARD:        Serial.print("FORWARD   "); break;
+        case BACKWARD:       Serial.print("BACKWARD  "); break;
+        case LEFT:           Serial.print("LEFT      "); break;
+        case RIGHT:          Serial.print("RIGHT     "); break;
+        case FORWARD_LEFT:   Serial.print("FWD_LEFT  "); break;
+        case FORWARD_RIGHT:  Serial.print("FWD_RIGHT "); break;
+        case BACKWARD_LEFT:  Serial.print("BWD_LEFT  "); break;
+        case BACKWARD_RIGHT: Serial.print("BWD_RIGHT "); break;
+        case SPIN_LEFT:      Serial.print("SPIN_L    "); break;
+        case SPIN_RIGHT:     Serial.print("SPIN_R    "); break;
+        default:             Serial.print("NONE      "); break;
+    }
+
     Serial.print(" | Enc Ticks [FL,FR,BL,BR]: ");
     Serial.print(encoder_get_ticks_fl()); Serial.print(", ");
     Serial.print(encoder_get_ticks_fr()); Serial.print(", ");
@@ -144,6 +157,18 @@ void setup()
 
     // 3. เริ่มต้นระบบ MCP2515 CAN Bus
     Serial.println("Initializing MCP2515 (Motor & Encoder Controller)...");
+    
+    // --- บังคับเคลียร์และกำหนดขา SPI ของ Mega 2560 อย่างเด็ดขาด ---
+    pinMode(CAN_CS_PIN, OUTPUT);
+    digitalWrite(CAN_CS_PIN, HIGH);
+    
+    pinMode(51, OUTPUT);        // MOSI (SI)
+    pinMode(52, OUTPUT);        // SCK (SCK)
+    pinMode(50, INPUT_PULLUP);  // MISO (SO) - ดึงลอจิกขึ้นกันสัญญาณลอย
+
+    SPI.begin();
+    // --------------------------------------------------------
+
     while (CAN0.begin(MCP_ANY, CAN_500KBPS, CAN_CLOCK_SET) != CAN_OK)
     {
         Serial.println("MCP2515 initialization failed. Retrying...");
@@ -161,7 +186,7 @@ void setup()
 // ==================================================
 void loop()
 {
-    // 1. รับข้อความจาก CAN Bus (ตรวจจับผ่าน SPI flag ไม่ชนกับขา Interrupt ของ Encoder)
+    // 1. รับข้อความจาก CAN Bus แบบ Polling
     while (CAN0.checkReceive() == CAN_MSGAVAIL)
     {
         unsigned long receivedId = 0;
@@ -183,14 +208,11 @@ void loop()
         float dt = (float)(currentTime - lastControlLoopMs) / 1000.0f;
         lastControlLoopMs = currentTime;
 
-        // คำนวณความเร็วจริงของล้อจาก Encoder
         encoder_update_speeds(dt);
-
-        // คำนวณ PID และส่ง PWM ไปยังมอเตอร์ L298N ทั้ง 4 ล้อ
         motor_update_pid(dt);
     }
 
-    // 3. Fail-safe Watchdog: หากขาดการเชื่อมต่อ CAN เกินเวลา CAN_TIMEOUT (300 ms) ให้หยุดล้อทันที
+    // 3. Fail-safe Watchdog
     if (motorCANAlive && (currentTime - lastMotorMessageTime > CAN_TIMEOUT))
     {
         motorCANAlive = false;

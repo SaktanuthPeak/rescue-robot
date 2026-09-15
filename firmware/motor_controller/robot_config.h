@@ -56,7 +56,7 @@
 // SCK=52, MISO=50, MOSI=51, CS=10
 // (หมายเหตุ: ตรวจจับข้อความผ่าน SPI checkReceive จึงไม่ชนกับขา Pin 2)
 // -----------------------------------------
-const byte CAN_CS_PIN = 10;
+const byte CAN_CS_PIN = 53;
 const unsigned long CAN_ID_MOTOR = 0x100;
 const unsigned long CAN_ID_TELEMETRY = 0x102; // ส่งรายงานสถานะ Encoder กลับผ่าน CAN
 const unsigned long CAN_TIMEOUT = 300;        // Timeout (ms) ตัดการทำงานมอเตอร์อัตโนมัติ
