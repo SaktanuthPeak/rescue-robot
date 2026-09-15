@@ -34,6 +34,32 @@ def test_rejects_receiver_frame_with_bad_checksum() -> None:
     assert parse_line(b"RB2,1,1,10,1,0,0,42*00\n") is None
 
 
+def test_parses_receiver_rb3_frame_with_ir_and_dht11_humidity() -> None:
+    sample = parse_line(_line("RB3,-1,0,-1,0,7400,303,100,200,300,400,65,44"))
+
+    assert sample is not None
+    assert sample.protocol == "RB3"
+    assert sample.battery_millivolts == 7400
+    assert sample.battery_adc == 303
+    assert (sample.flame_front, sample.flame_right, sample.flame_rear, sample.flame_left) == (
+        100,
+        200,
+        300,
+        400,
+    )
+    assert sample.flame_valid is True
+    assert sample.humidity_percent == 65.0
+    assert sample.sequence == 44
+
+
+def test_parses_legacy_receiver_rb3_frame_without_humidity() -> None:
+    sample = parse_line(_line("RB3,-1,0,-1,0,7400,303,100,200,300,400,43"))
+
+    assert sample is not None
+    assert sample.humidity_percent is None
+    assert sample.sequence == 43
+
+
 def test_parses_arm_controller_rb4_pose_frame() -> None:
     sample = parse_line(_line("RB4,6,1,13,1,0,0,305,278,331,1,43"))
 

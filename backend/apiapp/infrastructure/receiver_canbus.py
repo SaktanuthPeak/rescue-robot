@@ -2,7 +2,7 @@
 
 The receiver emits one RB2, RB3, or RB4 snapshot every 100 ms:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
-    RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,seq*CK
+    RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,humidity_percent,seq*CK
     RB4,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,axis1_pwm,axis2_pwm,axis3_pwm,pump_on,seq*CK
 
 RB4 is the arm-controller format. The three axis fields are the latest PCA9685
@@ -63,6 +63,7 @@ class ReceiverSample:
     flame_right: int
     flame_rear: int
     flame_left: int
+    humidity_percent: float | None
     flame_valid: bool
     arm_axis_1_pwm: int | None
     arm_axis_2_pwm: int | None
@@ -98,7 +99,7 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         return None
     if fields[0] == "RB2" and len(fields) != 8:
         return None
-    if fields[0] == "RB3" and len(fields) != 12:
+    if fields[0] == "RB3" and len(fields) not in (12, 13):
         return None
     if fields[0] == "RB4" and len(fields) != 12:
         return None
@@ -115,6 +116,7 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             flame_valid = False
             arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
             arm_pump_on = None
+            humidity_percent = None
             sequence = int(fields[7])
         elif fields[0] == "RB3":
             battery_millivolts = int(fields[5])
@@ -126,7 +128,17 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             flame_valid = True
             arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
             arm_pump_on = None
-            sequence = int(fields[11])
+            if len(fields) == 13:
+                humidity_value = int(fields[11])
+                if humidity_value < -1 or humidity_value > 100:
+                    return None
+                humidity_percent = (
+                    float(humidity_value) if humidity_value >= 0 else None
+                )
+                sequence = int(fields[12])
+            else:
+                humidity_percent = None
+                sequence = int(fields[11])
         elif fields[0] == "RB4":
             battery_millivolts = int(fields[5])
             battery_adc = int(fields[6])
@@ -139,6 +151,7 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             if pump_on_value not in (0, 1):
                 return None
             arm_pump_on = bool(pump_on_value)
+            humidity_percent = None
             sequence = int(fields[11])
         else:
             battery_millivolts = 0
@@ -147,6 +160,7 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             flame_valid = False
             arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
             arm_pump_on = None
+            humidity_percent = None
             sequence = int(fields[5])
     except ValueError:
         return None
@@ -181,6 +195,7 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         flame_right=flame_right,
         flame_rear=flame_rear,
         flame_left=flame_left,
+        humidity_percent=humidity_percent,
         flame_valid=flame_valid,
         arm_axis_1_pwm=arm_axis_1_pwm,
         arm_axis_2_pwm=arm_axis_2_pwm,
@@ -348,6 +363,7 @@ class ReceiverCanbusService:
             "battery_millivolts": sample.battery_millivolts if sample else 0,
             "battery_volts": round(sample.battery_millivolts / 1000, 3) if sample else 0.0,
             "battery_adc": sample.battery_adc if sample else 0,
+            "humidity_percent": sample.humidity_percent if sample else None,
             "last_command": last_command,
             "last_command_at": last_command_at,
         }

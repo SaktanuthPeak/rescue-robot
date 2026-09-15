@@ -1,5 +1,58 @@
 #include <SPI.h>
 #include <mcp_can.h>
+#include <U8g2lib.h>
+#include <DHT.h>
+#include <math.h>
+
+// =====================================================
+// OLED — software I2C
+// OLED SDA -> Arduino D6
+// OLED SCL -> Arduino D7
+// =====================================================
+
+const byte OLED_SDA_PIN = 6;
+const byte OLED_SCL_PIN = 7;
+const unsigned long OLED_INTERVAL_MS = 250;
+unsigned long lastOledTime = 0;
+
+U8G2_SSD1306_128X64_NONAME_1_SW_I2C oled(
+    U8G2_R0,
+    OLED_SCL_PIN,
+    OLED_SDA_PIN,
+    U8X8_PIN_NONE);
+
+// =====================================================
+// VOLTAGE SENSOR — A0
+// =====================================================
+
+const byte VOLTAGE_SENSOR_PIN = A0;
+const float VOLTAGE_R1 = 30000.0;
+const float VOLTAGE_R2 = 7500.0;
+const float ADC_REFERENCE_VOLTAGE = 5.0;
+
+int voltageAdcValue = 0;
+float inputVoltage = 0.0;
+
+// =====================================================
+// IR SENSOR — A1 ถึง A4
+// Order: front, right, rear, left
+// =====================================================
+
+const byte IR_SENSOR_COUNT = 4;
+const byte IR_SENSOR_PINS[IR_SENSOR_COUNT] = {A1, A2, A3, A4};
+int irAdcValue[IR_SENSOR_COUNT] = {0, 0, 0, 0};
+
+// =====================================================
+// DHT11 HUMIDITY SENSOR — D8
+// =====================================================
+
+const byte DHT_SENSOR_PIN = 8;
+const byte DHT_SENSOR_TYPE = DHT11;
+const unsigned long DHT_INTERVAL_MS = 2000;
+
+DHT dht(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
+int humidityPercent = -1;
+unsigned long lastDhtTime = 0;
 
 // =====================================================
 // CAN receiver configuration
@@ -88,11 +141,12 @@ const char *status_name(int status)
 // =====================================================
 // USB telemetry สำหรับ Raspberry Pi
 //
-// RB2:
-// RB2,motor_code,motor_alive,arm_code,arm_alive,
-//     battery_mV,battery_adc,seq*CK
+// RB3:
+// RB3,motor_code,motor_alive,arm_code,arm_alive,
+//     battery_mV,battery_adc,ir_front,ir_right,ir_rear,ir_left,
+//     humidity_percent,seq*CK
 //
-// Receiver นี้ไม่มี battery/IR sensor จึงส่งสองช่องนั้นเป็น 0
+// ใช้ USB Serial port เดิมที่ 115200 baud
 // =====================================================
 
 byte calculate_xor_checksum(const char *payload)
@@ -108,16 +162,26 @@ byte calculate_xor_checksum(const char *payload)
 
 void send_usb_telemetry()
 {
-    char payload[80];
+    char payload[128];
+
+    const unsigned long voltageMillivolts =
+        static_cast<unsigned long>((inputVoltage * 1000.0) + 0.5);
 
     snprintf(
         payload,
         sizeof(payload),
-        "RB2,%d,%d,%d,%d,0,0,%u",
+        "RB3,%d,%d,%d,%d,%lu,%d,%d,%d,%d,%d,%d,%u",
         lastMotorStatus,
         motorCANAlive ? 1 : 0,
         lastArmStatus,
         armCANAlive ? 1 : 0,
+        voltageMillivolts,
+        voltageAdcValue,
+        irAdcValue[0],
+        irAdcValue[1],
+        irAdcValue[2],
+        irAdcValue[3],
+        humidityPercent,
         telemetrySequence);
 
     byte checksum = calculate_xor_checksum(payload);
@@ -131,6 +195,83 @@ void send_usb_telemetry()
     Serial.println(checksum, HEX);
 
     telemetrySequence++;
+}
+
+// =====================================================
+// SENSOR READING
+// =====================================================
+
+void read_voltage_sensor()
+{
+    voltageAdcValue = analogRead(VOLTAGE_SENSOR_PIN);
+
+    const float adcVoltage =
+        (voltageAdcValue * ADC_REFERENCE_VOLTAGE) / 1024.0;
+
+    inputVoltage =
+        adcVoltage * (VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2;
+}
+
+void read_ir_sensors()
+{
+    for (byte i = 0; i < IR_SENSOR_COUNT; i++)
+    {
+        irAdcValue[i] = analogRead(IR_SENSOR_PINS[i]);
+    }
+}
+
+void read_dht_sensor()
+{
+    const float humidity = dht.readHumidity();
+
+    // DHT11 can occasionally return NaN while the line is settling. Keep the
+    // sentinel -1 so the backend/UI can distinguish unavailable from 0% RH.
+    if (isnan(humidity))
+    {
+        humidityPercent = -1;
+        return;
+    }
+
+    humidityPercent = constrain(static_cast<int>(humidity + 0.5f), 0, 100);
+}
+
+// =====================================================
+// OLED BATTERY VIEW
+// =====================================================
+
+void draw_battery_icon(int x, int y, int width, int height)
+{
+    const int terminalWidth = 5;
+    const int terminalHeight = 12;
+    const int terminalY = y + (height - terminalHeight) / 2;
+
+    oled.drawFrame(x, y, width, height);
+    oled.drawBox(x + width, terminalY, terminalWidth, terminalHeight);
+
+    // The icon is intentionally a battery indicator, not a battery percentage
+    // gauge. Numeric voltage remains the source of truth until chemistry limits
+    // are configured for the actual battery pack.
+    if (inputVoltage > 0.0)
+    {
+        oled.drawBox(x + 3, y + 3, width - 6, height - 6);
+    }
+}
+
+void update_oled()
+{
+    oled.firstPage();
+
+    do
+    {
+        oled.setFont(u8g2_font_6x10_tf);
+        oled.drawStr(42, 10, "BATTERY");
+
+        draw_battery_icon(27, 17, 74, 30);
+
+        oled.setCursor(38, 59);
+        oled.print(inputVoltage, 2);
+        oled.print(" V");
+    } while (oled.nextPage());
 }
 
 // =====================================================
@@ -234,6 +375,19 @@ void setup()
 {
     Serial.begin(115200);
 
+    pinMode(VOLTAGE_SENSOR_PIN, INPUT);
+    for (byte i = 0; i < IR_SENSOR_COUNT; i++)
+    {
+        pinMode(IR_SENSOR_PINS[i], INPUT);
+    }
+
+    dht.begin();
+
+    oled.begin();
+    read_voltage_sensor();
+    read_ir_sensors();
+    update_oled();
+
     // ใช้ D53 เป็น hardware SS ของ Mega ให้เป็น OUTPUT เพื่อคง SPI master mode
     pinMode(53, OUTPUT);
     digitalWrite(53, HIGH);
@@ -252,6 +406,8 @@ void setup()
 
     Serial.println("MCP2515 initialized. CAN receiver ready");
     lastTelemetryTime = millis();
+    lastOledTime = millis();
+    lastDhtTime = millis();
 }
 
 void loop()
@@ -263,6 +419,21 @@ void loop()
     if (currentTime - lastTelemetryTime >= TELEMETRY_INTERVAL_MS)
     {
         lastTelemetryTime = currentTime;
+        read_voltage_sensor();
+        read_ir_sensors();
         send_usb_telemetry();
+    }
+
+    // DHT11 is a slow sensor; do not poll it at the 100 ms telemetry rate.
+    if (currentTime - lastDhtTime >= DHT_INTERVAL_MS)
+    {
+        lastDhtTime = currentTime;
+        read_dht_sensor();
+    }
+
+    if (currentTime - lastOledTime >= OLED_INTERVAL_MS)
+    {
+        lastOledTime = currentTime;
+        update_oled();
     }
 }

@@ -22,6 +22,7 @@ export const robotStatusSchema = z.object({
 	battery_millivolts: z.number().int().nonnegative(),
 	battery_volts: z.number().nonnegative(),
 	battery_adc: z.number().int().nonnegative(),
+	humidity_percent: z.number().min(0).max(100).nullable(),
 	last_command: z.string().nullable(),
 	last_command_at: z.string().nullable()
 });
@@ -56,6 +57,7 @@ export const INITIAL_ROBOT_STATUS: RobotStatus = {
 	battery_millivolts: 0,
 	battery_volts: 0,
 	battery_adc: 0,
+	humidity_percent: null,
 	last_command: null,
 	last_command_at: null
 };

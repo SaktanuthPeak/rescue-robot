@@ -5,7 +5,7 @@ The firmware emits either:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
 or:
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,
-    flame_front,flame_right,flame_rear,flame_left,seq*CK
+    flame_front,flame_right,flame_rear,flame_left,humidity_percent,seq*CK
 
 Human-readable Arduino log lines are intentionally ignored.  This makes the
 reader safe to use while the receiver is printing boot and CAN diagnostics.
@@ -55,6 +55,7 @@ class ReceiverTelemetry:
     flame_right: int
     flame_rear: int
     flame_left: int
+    humidity_percent: int | None
     flame_valid: bool
     sequence: int
 
@@ -85,7 +86,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         return None
     if fields[0] == "RB2" and len(fields) != 8:
         return None
-    if fields[0] == "RB3" and len(fields) != 12:
+    if fields[0] == "RB3" and len(fields) not in (12, 13):
         return None
 
     try:
@@ -98,6 +99,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
             battery_adc = int(fields[6])
             flame_front = flame_right = flame_rear = flame_left = 0
             flame_valid = False
+            humidity_percent = None
             sequence = int(fields[7])
         elif fields[0] == "RB3":
             battery_millivolts = int(fields[5])
@@ -107,12 +109,21 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
             flame_rear = int(fields[9])
             flame_left = int(fields[10])
             flame_valid = True
-            sequence = int(fields[11])
+            if len(fields) == 13:
+                humidity_value = int(fields[11])
+                if humidity_value < -1 or humidity_value > 100:
+                    return None
+                humidity_percent = humidity_value if humidity_value >= 0 else None
+                sequence = int(fields[12])
+            else:
+                humidity_percent = None
+                sequence = int(fields[11])
         else:
             battery_millivolts = 0
             battery_adc = 0
             flame_front = flame_right = flame_rear = flame_left = 0
             flame_valid = False
+            humidity_percent = None
             sequence = int(fields[5])
     except ValueError:
         return None
@@ -127,6 +138,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         or battery_millivolts < 0
         or not 0 <= battery_adc <= 1023
         or not all(0 <= value <= 1023 for value in (flame_front, flame_right, flame_rear, flame_left))
+        or humidity_percent is not None and not 0 <= humidity_percent <= 100
     ):
         return None
     if sequence < 0:
@@ -146,6 +158,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         flame_right=flame_right,
         flame_rear=flame_rear,
         flame_left=flame_left,
+        humidity_percent=humidity_percent,
         flame_valid=flame_valid,
         sequence=sequence,
     )
@@ -176,9 +189,15 @@ def main() -> int:
             else:
                 motor_link = "CAN OK" if telemetry.motor_alive else "CAN TIMEOUT"
                 arm_link = "CAN OK" if telemetry.arm_alive else "CAN TIMEOUT"
+                humidity_label = (
+                    f"{telemetry.humidity_percent}%"
+                    if telemetry.humidity_percent is not None
+                    else "n/a"
+                )
                 print(
                     f"seq={telemetry.sequence:>6} | "
                     f"BAT={telemetry.battery_volts:>5.2f} V | "
+                    f"HUM={humidity_label:>4} | "
                     f"FLAME={telemetry.flame_front:>4},{telemetry.flame_right:>4},"
                     f"{telemetry.flame_rear:>4},{telemetry.flame_left:>4} | "
                     f"MOTOR={telemetry.motor_status:<14} ({motor_link}) | "

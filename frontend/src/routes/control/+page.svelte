@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { AlertTriangle, Battery, Link2, Radio, RefreshCw, Wifi, WifiOff } from 'lucide-svelte';
+	import {
+		AlertTriangle,
+		Battery,
+		Droplets,
+		Link2,
+		Radio,
+		RefreshCw,
+		Wifi,
+		WifiOff
+	} from 'lucide-svelte';
 
 	import AppContainer from '$lib/components/app-container.svelte';
 	import { CameraCard } from '$lib/features/camera';
@@ -27,6 +36,9 @@
 	);
 	const batteryLabel = $derived(
 		status.battery_millivolts > 0 ? `${status.battery_volts.toFixed(2)} V` : 'n/a'
+	);
+	const humidityLabel = $derived(
+		status.humidity_percent !== null ? `${status.humidity_percent.toFixed(0)} %` : 'n/a'
 	);
 	const linkLabel = $derived(
 		status.state === 'streaming'
@@ -141,6 +153,11 @@
 			<div class="status-stat battery-stat">
 				<span>battery</span><strong><Battery size={15} /> {batteryLabel}</strong><small
 					>ADC {status.battery_adc}</small
+				>
+			</div>
+			<div class="status-stat humidity-stat">
+				<span>humidity</span><strong><Droplets size={15} /> {humidityLabel}</strong><small
+					>DHT11</small
 				>
 			</div>
 			<div class="status-stat"><span>last frame</span><strong>{statusAge}</strong></div>
@@ -314,7 +331,7 @@
 		margin: 0 auto 0.7rem;
 		padding: 0.5rem;
 		display: grid;
-		grid-template-columns: minmax(220px, 1.7fr) repeat(4, 1fr);
+		grid-template-columns: minmax(220px, 1.7fr) repeat(5, 1fr);
 		align-items: center;
 		gap: 0.35rem;
 		border-radius: 0.35rem;

@@ -29,6 +29,7 @@ class RobotStatusResponse(BaseModel):
     battery_millivolts: int = Field(ge=0)
     battery_volts: float = Field(ge=0)
     battery_adc: int = Field(ge=0)
+    humidity_percent: float | None = Field(default=None, ge=0, le=100)
     last_command: str | None
     last_command_at: datetime | None
 
