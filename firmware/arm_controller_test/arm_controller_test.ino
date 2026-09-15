@@ -85,12 +85,10 @@ bool is_valid_motor_status(byte value)
 // ==================================================
 // USB telemetry สำหรับ Raspberry Pi
 //
-// RB4 format:
-// RB4,motor_code,motor_alive,arm_code,arm_alive,battery_mV,battery_adc,
-//     axis1_pwm,axis2_pwm,axis3_pwm,pump_on,seq*CK
+// RB2 format:
+// RB2,motor_code,motor_alive,arm_code,arm_alive,battery_mV,battery_adc,seq*CK
 //
-// บอร์ดนี้ไม่มี battery/IR sensor จึงส่งสองช่องนั้นเป็น 0 ส่วน axis PWM
-// คือค่าคำสั่งปัจจุบันของ PCA9685 ทั้ง 3 แกน และ pump_on เป็น 0/1
+// บอร์ดนี้ไม่มี battery/IR sensor จึงส่งสองช่องนั้นเป็น 0
 // ==================================================
 byte calculate_xor_checksum(const char *payload)
 {
@@ -110,15 +108,11 @@ void send_usb_telemetry()
     snprintf(
         payload,
         sizeof(payload),
-        "RB4,%d,%d,%d,%d,0,0,%u,%u,%u,%d,%u",
+        "RB2,%d,%d,%d,%d,0,0,%u",
         lastMotorStatus,
         motorCANAlive ? 1 : 0,
         lastArmStatus,
         armCANAlive ? 1 : 0,
-        pca.getPos(0),
-        pca.getPos(1),
-        pca.getPos(2),
-        pumpState ? 1 : 0,
         telemetrySequence);
 
     byte checksum = calculate_xor_checksum(payload);

@@ -2,6 +2,30 @@
 
 เอกสารสรุปการปรับปรุงโค้ดและผังการต่อสายของระบบควบคุมมอเตอร์ขับเคลื่อนล้อแม็กคาน็อม (Mecanum Wheel Controller) ทำงานร่วมกับ **Quadrature Encoder 4 ล้อ**, **Closed-Loop PID Control**, **การสื่อสารผ่าน CAN Bus (MCP2515)** และตัดส่วนควบคุม Servo/แขนกล ออกทั้งหมด
 
+## FreeRTOS Runtime
+
+`motor_controller.ino` ใช้ไลบรารี `Arduino_FreeRTOS` สำหรับ Arduino Mega 2560 โดยแบ่งงานเป็น 2 task:
+
+| Task | Priority | Period | หน้าที่ |
+| :--- | :---: | :---: | :--- |
+| `MotorCtrl` | 3 | 1 RTOS tick (~15 ms) | อ่านความเร็ว Encoder, คำนวณ PID, สั่ง PWM และตรวจ CAN timeout |
+| `CAN` | 2 | 1 RTOS tick polling / ~100 ms telemetry | รับคำสั่ง CAN, ส่งคำสั่งผ่าน queue และส่ง Telemetry |
+
+ติดตั้งไลบรารี `FreeRTOS` ที่รองรับ `avr` ก่อน compile จาก Arduino IDE แล้วเลือกบอร์ด **Arduino Mega or Mega 2560** ได้เลย โค้ดใช้ queue ความยาว 1 เพื่อเก็บคำสั่งล่าสุดเท่านั้น และให้ CAN task เป็นเจ้าของ `MCP_CAN CAN0` เพียง task เดียว ป้องกันการชนกันของการใช้งาน SPI.
+
+> หมายเหตุ: FreeRTOS บน Mega ใช้ tick ประมาณ 15 ms และมี RAM จำกัด จึงไม่ควรเพิ่ม task หรือ buffer ขนาดใหญ่โดยไม่ตรวจ stack/heap ก่อน
+
+### Encoder CAN Telemetry
+
+ทุกประมาณ 100 ms จะส่ง ticks สะสมของ Encoder ครบทั้ง 4 ล้อเพิ่มอีก 2 frames:
+
+| CAN ID | Byte 0–3 | Byte 4–7 | Encoding |
+| :---: | :--- | :--- | :--- |
+| `0x103` | FL ticks | FR ticks | signed `int32`, big-endian |
+| `0x104` | BL ticks | BR ticks | signed `int32`, big-endian |
+
+ค่าติดลบหมายถึงทิศทางถอยหลังตามการตั้งค่า `ENC_*_DIR` ใน `robot_config.h`.
+
 ---
 
 ## 1. ผังการต่อสายฉบับใช้งานจริง (Pinout Mapping)

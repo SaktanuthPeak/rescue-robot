@@ -14,6 +14,7 @@ def test_parses_arm_controller_rb2_frame() -> None:
     sample = parse_line(_line("RB2,1,1,14,1,0,0,42"))
 
     assert sample is not None
+    assert sample.protocol == "RB2"
     assert sample.motor_code == 1
     assert sample.motor_alive is True
     assert sample.arm_code == 14
@@ -22,6 +23,10 @@ def test_parses_arm_controller_rb2_frame() -> None:
     assert sample.battery_millivolts == 0
     assert sample.battery_adc == 0
     assert sample.flame_valid is False
+    assert sample.arm_axis_1_pwm is None
+    assert sample.arm_axis_2_pwm is None
+    assert sample.arm_axis_3_pwm is None
+    assert sample.arm_pump_on is None
     assert sample.sequence == 42
 
 

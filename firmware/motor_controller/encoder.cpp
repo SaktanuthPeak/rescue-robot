@@ -143,3 +143,20 @@ void encoder_update_speeds(float dt) {
     last_ticks_bl = cur_bl;
     last_ticks_br = cur_br;
 }
+
+void encoder_get_snapshot(EncoderSnapshot *snapshot) {
+    if (snapshot == nullptr) return;
+
+    // AVR อ่านค่า 32-bit และ float ไม่ได้ในคำสั่งเดียว จึงต้องกั้น
+    // interrupt/tick ชั่วครู่เพื่อไม่ให้ค่าถูกอ่านครึ่งหนึ่ง
+    noInterrupts();
+    snapshot->ticks_fl = ticks_fl;
+    snapshot->ticks_fr = ticks_fr;
+    snapshot->ticks_bl = ticks_bl;
+    snapshot->ticks_br = ticks_br;
+    snapshot->speed_fl = speed_fl;
+    snapshot->speed_fr = speed_fr;
+    snapshot->speed_bl = speed_bl;
+    snapshot->speed_br = speed_br;
+    interrupts();
+}
