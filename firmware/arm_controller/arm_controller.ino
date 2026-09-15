@@ -1,108 +1,67 @@
 #include <SPI.h>
 #include <mcp_can.h>
-#include "PCA9685_Control.h" // นำเข้าไลบรารีคุม Servo
+#include "PCA9685_Control.h"
 #include "robot_config.h"
+
+// --- นำเข้าไลบรารีสำหรับจัดการระดับ Low-Level ของ AVR ---
+#include <avr/wdt.h>
+#include <avr/interrupt.h>
 
 // ---------------- CAN configuration ----------------
 const byte CAN_CS_PIN = 10;
-const byte CAN_INT_PIN = 2; 
+// ขา INT บน UNO คือ Pin 2 (PD2 / INT0) เราจะจัดการผ่าน Register ด้านล่าง
 
 const unsigned long CAN_ID_MOTOR = 0x100;
 const unsigned long CAN_ID_ARM   = 0x101;
-const unsigned long CAN_TIMEOUT  = 300; 
+
+// --- ตั้งค่าเวลาของระบบ (Dual-Timeout) ---
+const unsigned long CAN_SIGNAL_TIMEOUT = 1000;  // 1 วินาที: สัญญาณขาดหาย สั่งหยุดแขนทันที
+const unsigned long SLEEP_TIMEOUT      = 30000; // 30 วินาที: ปล่อยจอยทิ้งไว้ เข้าสู่ Sleep Mode
 
 MCP_CAN CAN0(CAN_CS_PIN);
 
-// ---------------- Relay configuration (ปั๊มน้ำ) ----------------
-// กำหนดขา Relay สำหรับเปิด/ปิด ปั๊มน้ำ (ค่าเริ่มต้นใช้ขา 4 ตาม robot_config.h)
+// ---------------- Relay configuration ----------------
 #ifndef RELAY_PUMP_PIN
 #define RELAY_PUMP_PIN 4
 #endif
-
-// โมดูล Relay ทั่วไปเป็นแบบ Active-LOW (LOW = Relay ON, HIGH = Relay OFF)
-// หากใช้โมดูล Active-HIGH ให้สลับค่า LOW กับ HIGH
-const byte RELAY_ON_STATE  = LOW;  // สถานะสั่งเปิด Relay
-const byte RELAY_OFF_STATE = HIGH; // สถานะสั่งปิด Relay
+const byte RELAY_ON_STATE  = LOW;  
+const byte RELAY_OFF_STATE = HIGH; 
 bool pumpState = false;
 
 // ---------------- PCA9685 configuration ----------------
 PCA9685Control pca;
-
-// ตัวแปรจดจำตำแหน่งปัจจุบันของ Servo
-int servo0_pwm = 305; // ช่อง 0 (PCA ตัวที่ 1): ฐานหมุน ซ้าย-ขวา (LEFT=3, RIGHT=4)
-int servo1_pwm = 305; // ช่อง 1 (PCA ตัวที่ 2): แขนยก ขึ้น-ลง (FORWARD=1, BACKWARD=2)
-int servo2_pwm = 305; // ช่อง 2 (PCA ตัวที่ 3): หัวยก ขึ้น-ลง (Head_Up=13, Head_Down=14)
-
+int servo0_pwm = 335; 
+int servo1_pwm = 305; 
+int servo2_pwm = 305; 
 unsigned long last_servo_update_ms = 0;
-const unsigned long SERVO_UPDATE_INTERVAL = 15; // ความเร็วในการขยับแขนกล (ค่าน้อย = ขยับไว)
+const unsigned long SERVO_UPDATE_INTERVAL = 15;
 
-// ---------------- Status definition (ตรงกับ sender CAN bus) ----------------
-enum PS2_Status : uint8_t
-{
-    STOP = 0,
-    FORWARD = 1,
-    BACKWARD = 2,
-    LEFT = 3,
-    RIGHT = 4,
-    FORWARD_LEFT = 5,
-    FORWARD_RIGHT = 6,
-    BACKWARD_LEFT = 7,
-    BACKWARD_RIGHT = 8,
-    SPIN_LEFT = 9,
-    SPIN_RIGHT = 10,
-    Pump_On = 11,
-    Pump_Off = 12,
-    Head_Up = 13,
-    Head_Down = 14
+// ---------------- Status definition ----------------
+enum PS2_Status : uint8_t {
+    STOP = 0, FORWARD = 1, BACKWARD = 2, LEFT = 3, RIGHT = 4,
+    FORWARD_LEFT = 5, FORWARD_RIGHT = 6, BACKWARD_LEFT = 7, BACKWARD_RIGHT = 8,
+    SPIN_LEFT = 9, SPIN_RIGHT = 10, Pump_On = 11, Pump_Off = 12, Head_Up = 13, Head_Down = 14
 };
 
-unsigned long lastArmMessageTime = 0;
-bool armCANAlive = false;
+// ---------------- System Variables ----------------
+volatile bool isDataReady = false; 
 int lastArmStatus = -1;
 
-// ==================================================
-// ตรวจสอบความถูกต้องของข้อมูล (ป้องกันค่าขยะ)
-// ==================================================
-bool is_valid_arm_status(byte value)
-{
-    return (value == STOP) ||
-           (value >= FORWARD && value <= BACKWARD_RIGHT) ||
-           (value == Pump_On || value == Pump_Off) ||
-           (value == Head_Up || value == Head_Down);
+unsigned long lastArmMessageTime = 0; 
+unsigned long lastActiveTime = 0;     
+bool sleepMode = false;
+
+bool is_valid_arm_status(byte value) {
+    return (value == STOP) || (value >= FORWARD && value <= BACKWARD_RIGHT) ||
+           (value == Pump_On || value == Pump_Off) || (value == Head_Up || value == Head_Down);
 }
 
 // ==================================================
-// ประมวลผลข้อความ CAN
+// Low-Level Interrupt Service Routine (ISR) สำหรับ INT0 (Pin 2 บน UNO)
 // ==================================================
-void process_can_message(unsigned long receivedId, byte dataLength, byte *rxData)
+ISR(INT0_vect) 
 {
-    if (dataLength < 1) return;
-
-    byte receivedStatus = rxData[0];
-
-    // ---------------- คำสั่งควบคุมแขนกลและปั๊มน้ำ ----------------
-    if (receivedId == CAN_ID_ARM)
-    {
-        if (!is_valid_arm_status(receivedStatus)) return;
-
-        lastArmMessageTime = millis();
-        armCANAlive = true;
-        
-        // ควบคุม Relay ปั๊มน้ำ
-        if (receivedStatus == Pump_On)
-        {
-            digitalWrite(RELAY_PUMP_PIN, RELAY_ON_STATE);
-            pumpState = true;
-        }
-        else if (receivedStatus == Pump_Off)
-        {
-            digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE);
-            pumpState = false;
-        }
-
-        // อัปเดตสถานะล่าสุดเพื่อให้ loop() ขยับ Servo อย่างต่อเนื่อง
-        lastArmStatus = receivedStatus; 
-    }
+    isDataReady = true; 
 }
 
 // ==================================================
@@ -110,133 +69,178 @@ void process_can_message(unsigned long receivedId, byte dataLength, byte *rxData
 // ==================================================
 void setup()
 {
+    // 1. ปิด Watchdog ก่อนเป็นอันดับแรก (ป้องกันการติดลูป Reset หากบอร์ดเพิ่งบูต)
+    cli(); // ปิด Interrupt ชั่วคราว
+    MCUSR &= ~(1 << WDRF); // เคลียร์ Flag การรีเซ็ตจาก Watchdog
+    WDTCSR |= (1 << WDCE) | (1 << WDE); 
+    WDTCSR = 0x00; // ปิด WDT
+    sei();
+
     Serial.begin(115200);
 
-    // --- เริ่มต้นระบบ Relay ควบคุมปั๊มน้ำ ---
     pinMode(RELAY_PUMP_PIN, OUTPUT);
-    digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE); // ปิดปั๊มน้ำเริ่มต้น
+    digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE);
 
-    // --- เริ่มต้นระบบแขนกล (PCA9685) ---
+    // ทันทีที่บอร์ดเริ่มทำงาน (หรือโดน WDT Reset) จะดึงแขนกลมาที่จุดปลอดภัยทันที
     pca.begin();
     pca.setPWMFreq(50.0);
-    pca.setPWM(0, 0, servo0_pwm); // PCA ช่อง 0 (ตัวที่ 1): ฐานหมุนกึ่งกลาง
-    pca.setPWM(1, 0, servo1_pwm); // PCA ช่อง 1 (ตัวที่ 2): แขนยกกึ่งกลาง
-    pca.setPWM(2, 0, servo2_pwm); // PCA ช่อง 2 (ตัวที่ 3): หัวยกกึ่งกลาง
-
-    pinMode(CAN_INT_PIN, INPUT);
+    pca.setPWM(0, 0, servo0_pwm); 
+    pca.setPWM(1, 0, servo1_pwm); 
+    pca.setPWM(2, 0, servo2_pwm); 
 
     Serial.println("Initializing MCP2515...");
-    while (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) != CAN_OK)
-    {
+    while (CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) != CAN_OK) {
         Serial.println("MCP2515 initialization failed. Retrying...");
         delay(1000);
     }
     CAN0.setMode(MCP_NORMAL);
     
-    Serial.println("MCP2515 initialized. Arm CAN receiver ready");
+    // ล้าง Buffer ให้ว่างเพื่อเตรียมรับ Interrupt
+    while (CAN0.checkReceive() == CAN_MSGAVAIL) {
+        unsigned long dummyId; byte dummyLen; byte dummyBuf[8];
+        CAN0.readMsgBuf(&dummyId, &dummyLen, dummyBuf);
+    }
+
+    // ==========================================
+    // 2. Low-Level Configuration: ขา INT0 (Pin 2 บน UNO)
+    // ==========================================
+    cli(); 
+    // ตั้งค่า Pin 2 (PD2) เป็น Input (DDRD2 = 0) และเปิด Pull-up (PORTD2 = 1)
+    DDRD &= ~(1 << PD2); 
+    PORTD |= (1 << PD2);
+    
+    // ตั้งค่าให้ INT0 ทริกเกอร์เมื่อเกิดขอบขาลง (FALLING EDGE: ISC01=1, ISC00=0)
+    EICRA = (EICRA & ~((1 << ISC00) | (1 << ISC01))) | (1 << ISC01);
+    
+    // เปิดใช้งานการขัดจังหวะที่ INT0
+    EIMSK |= (1 << INT0);
+    
+    // ==========================================
+    // 3. Low-Level Configuration: Watchdog Timer
+    // ==========================================
+    // เข้าสู่โหมดแก้ไขค่า WDT
+    WDTCSR |= (1 << WDCE) | (1 << WDE);
+    // เปิดการตั้งค่าแบบ System Reset Mode (WDE=1) 
+    // และกำหนดระยะเวลา Timeout เป็น 0.5 วินาที (500ms) ด้วย Prescaler (WDP2=1, WDP0=1)
+    WDTCSR = (1 << WDE) | (1 << WDP2) | (1 << WDP0);
+    sei(); // เปิด Interrupt ทั้งระบบกลับมา
+    
+    lastArmMessageTime = millis();
+    lastActiveTime = millis();
+
+    Serial.println("System Ready (UNO). Watchdog Active (500ms). Waiting for CAN...");
 }
 
 // ==================================================
-// Main loop
+// Main loop 
 // ==================================================
 void loop()
 {
-    // 1. รับข้อมูลจาก CAN Bus แบบ Polling
-    if (CAN0.checkReceive() == CAN_MSGAVAIL)
-    {
-        unsigned long receivedId;
-        byte dataLength;
-        byte rxData[8];
-
-        byte result = CAN0.readMsgBuf(&receivedId, &dataLength, rxData);
-        
-        if (result == CAN_OK) 
-        {
-            // ---------- เริ่มส่วน Debug ข้อความ CAN ----------
-            Serial.print("CAN RX | ID: 0x");
-            Serial.print(receivedId, HEX);
-            Serial.print(" | Len: ");
-            Serial.print(dataLength);
-            Serial.print(" | Status Data: ");
-            if (dataLength > 0) {
-                Serial.print(rxData[0]);
-                Serial.print(" (");
-                switch (rxData[0])
-                {
-                    case FORWARD:   Serial.print("FORWARD"); break;
-                    case BACKWARD:  Serial.print("BACKWARD"); break;
-                    case LEFT:      Serial.print("LEFT"); break;
-                    case RIGHT:     Serial.print("RIGHT"); break;
-                    case Pump_On:   Serial.print("Pump_On"); break;
-                    case Pump_Off:  Serial.print("Pump_Off"); break;
-                    case Head_Up:   Serial.print("Head_Up"); break;
-                    case Head_Down: Serial.print("Head_Down"); break;
-                    case STOP:      Serial.print("STOP"); break;
-                    default:        Serial.print("OTHER"); break;
-                }
-                Serial.print(")");
-            }
-            Serial.print(" | Pump: ");
-            Serial.println(pumpState ? "ON" : "OFF");
-            // ---------- จบส่วน Debug ----------
-
-            process_can_message(receivedId, dataLength, rxData);
-        }
-    }
-
+    // ==========================================
+    // 4. "ให้อาหารหมา" (Feed the Dog)
+    // ==========================================
+    wdt_reset(); 
+    
     unsigned long currentTime = millis();
 
-    // 2. ขยับแขนกลอย่างต่อเนื่องตามสถานะที่ได้รับมา
-    if (currentTime - last_servo_update_ms >= SERVO_UPDATE_INTERVAL) 
+    // ตรวจรับข้อความจาก Interrupt
+    if (isDataReady) 
     {
-        last_servo_update_ms = currentTime;
-        bool servo_changed = false;
-
-        // อัปเดต Servo 0 (PCA ตัวที่ 1: ฐานหมุนซ้าย-ขวา ด้วย LEFT=3 / RIGHT=4)
-        if (lastArmStatus == LEFT || lastArmStatus == FORWARD_LEFT || lastArmStatus == BACKWARD_LEFT) {
-            servo0_pwm -= 2; servo_changed = true;
-        } 
-        else if (lastArmStatus == RIGHT || lastArmStatus == FORWARD_RIGHT || lastArmStatus == BACKWARD_RIGHT) {
-            servo0_pwm += 2; servo_changed = true;
-        }
-
-        // อัปเดต Servo 1 (PCA ตัวที่ 2: แขนยกขึ้น-ลง ด้วย FORWARD=1 / BACKWARD=2)
-        if (lastArmStatus == FORWARD) {
-            servo1_pwm -= 2; servo_changed = true;
-        } 
-        else if (lastArmStatus == BACKWARD) {
-            servo1_pwm += 2; servo_changed = true;
-        }
-
-        // อัปเดต Servo 2 (PCA ตัวที่ 3: หัวยกขึ้น-ลง ด้วย Head_Up=13 / Head_Down=14)
-        if (lastArmStatus == Head_Up) {
-            servo2_pwm -= 2; servo_changed = true; 
-        } 
-        else if (lastArmStatus == Head_Down) {
-            servo2_pwm += 2; servo_changed = true;
-        }
-
-        // ส่งคำสั่งไปที่บอร์ด PCA9685 เฉพาะตอนที่มีการเปลี่ยนค่าองศา
-        if (servo_changed) 
+        isDataReady = false; 
+        
+        while (CAN0.checkReceive() == CAN_MSGAVAIL) 
         {
-            // จำกัดขอบเขตองศาให้อยู่ในช่วงปลอดภัย ป้องกันเซอร์โวติดขัด
-            servo0_pwm = constrain(servo0_pwm, 150, 450);
-            servo1_pwm = constrain(servo1_pwm, 150, 450);
-            servo2_pwm = constrain(servo2_pwm, 150, 450);
+            unsigned long receivedId;
+            byte dataLength;
+            byte rxData[8];
+            
+            CAN0.readMsgBuf(&receivedId, &dataLength, rxData);
 
-            pca.setPWM(0, 0, servo0_pwm); // PCA ตัวที่ 1
-            pca.setPWM(1, 0, servo1_pwm); // PCA ตัวที่ 2
-            pca.setPWM(2, 0, servo2_pwm); // PCA ตัวที่ 3
+            if (receivedId == CAN_ID_ARM && dataLength > 0) 
+            {
+                byte status = rxData[0];
+                if (is_valid_arm_status(status)) 
+                {
+                    lastArmStatus = status;
+                    lastArmMessageTime = currentTime; 
+
+                    if (status != STOP || sleepMode) 
+                    {
+                        lastActiveTime = currentTime; 
+
+                        if (sleepMode) {
+                            Serial.println("WAKE UP: System Activated by User");
+                            sleepMode = false;
+                        }
+                    }
+
+                    if (status == Pump_On) {
+                        digitalWrite(RELAY_PUMP_PIN, RELAY_ON_STATE);
+                        pumpState = true;
+                    } else if (status == Pump_Off) {
+                        digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE);
+                        pumpState = false;
+                    }
+                }
+            }
         }
     }
 
-    // ---------------- Fail-safe ระบบความปลอดภัย ----------------
-    if (armCANAlive && (currentTime - lastArmMessageTime > CAN_TIMEOUT))
+    // ขยับ Servo
+    if (!sleepMode && lastArmStatus != -1)
     {
-        armCANAlive = false;
-        lastArmStatus = -1; // ถ้าสัญญาณขาดหาย แขนกลจะหยุดขยับ
-        digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE); // ปิดปั๊มน้ำเพื่อความปลอดภัย
+        if (currentTime - last_servo_update_ms >= SERVO_UPDATE_INTERVAL) 
+        {
+            last_servo_update_ms = currentTime;
+            bool servo_changed = false;
+
+            if (lastArmStatus == LEFT || lastArmStatus == FORWARD_LEFT || lastArmStatus == BACKWARD_LEFT) {
+                servo0_pwm -= 2; servo_changed = true;
+            } else if (lastArmStatus == RIGHT || lastArmStatus == FORWARD_RIGHT || lastArmStatus == BACKWARD_RIGHT) {
+                servo0_pwm += 2; servo_changed = true;
+            }
+
+            if (lastArmStatus == FORWARD) {
+                servo1_pwm -= 2; servo_changed = true;
+            } else if (lastArmStatus == BACKWARD) {
+                servo1_pwm += 2; servo_changed = true;
+            }
+
+            if (lastArmStatus == Head_Up) {
+                servo2_pwm -= 2; servo_changed = true; 
+            } else if (lastArmStatus == Head_Down) {
+                servo2_pwm += 2; servo_changed = true;
+            }
+
+            if (servo_changed) 
+            {
+                servo0_pwm = constrain(servo0_pwm, 150, 450);
+                servo1_pwm = constrain(servo1_pwm, 150, 450);
+                servo2_pwm = constrain(servo2_pwm, 150, 450);
+
+                pca.setPWM(0, 0, servo0_pwm); 
+                pca.setPWM(1, 0, servo1_pwm); 
+                pca.setPWM(2, 0, servo2_pwm); 
+            }
+        }
+    }
+
+    // Fail-Safe: สัญญาณขาดหายเกิน 1 วินาที
+    if (lastArmStatus != -1 && (currentTime - lastArmMessageTime > CAN_SIGNAL_TIMEOUT))
+    {
+        lastArmStatus = -1;
+        Serial.println("WARNING: CAN Signal Lost! Arm safely stopped.");
+    }
+
+    // Sleep Mode: ปล่อยจอยสติ๊กทิ้งไว้เกิน 30 วินาที
+    if (!sleepMode && (currentTime - lastActiveTime > SLEEP_TIMEOUT))
+    {
+        sleepMode = true;
+        lastArmStatus = -1; 
+        
+        digitalWrite(RELAY_PUMP_PIN, RELAY_OFF_STATE); 
         pumpState = false;
-        Serial.println("WARNING: Arm CAN timeout - Pump stopped");
+        
+        Serial.println("SLEEP MODE: Inactive for 30 seconds. System halted.");
     }
 }
