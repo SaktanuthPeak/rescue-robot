@@ -136,6 +136,8 @@ firmware/motor_controller/
 ├── encoder.cpp           # การตั้งค่า Interrupts (Pins 18, 19, 2, 3) และคำนวณ ticks/sec
 ├── motor.h               # เฮดเดอร์ฟังก์ชันการเคลื่อนที่ Mecanum และ PID
 ├── motor.cpp             # จลนศาสตร์ล้อแม็กคาน็อม 10 ทิศทาง และลูป PID 4 ล้อ
+├── settings.h/.cpp       # โหลด/บันทึก PID settings พร้อม CRC ใน EEPROM
+├── tm1638.h/.cpp         # ไดรเวอร์ TM1638 แบบ local ไม่ต้องพึ่งไลบรารีเพิ่ม
 ├── motor_controller.ino  # สเก็ตช์หลัก: จัดการ CAN Bus, ลูป 50Hz, Fail-safe, และ Telemetry
 └── README.md             # เอกสารสรุปการทำงานและการต่อวงจร (ไฟล์นี้)
 ```
@@ -150,3 +152,47 @@ firmware/motor_controller/
    ```text
    M: 1 | Enc Ticks [FL,FR,BL,BR]: 1250, 1248, 1252, 1249 | Speeds: 802, 799, 804, 800
    ```
+
+### Serial CAN Monitor
+
+ตั้งค่า `CAN_SERIAL_DEBUG` ใน `robot_config.h` เป็น `1` เพื่อดู CAN frame ที่รับเข้าและส่งออกทั้งหมดผ่าน Serial Monitor ที่ `115200 baud`:
+
+```text
+1234 CAN RX id=0x100 dlc=1 data=01 result=CAN_OK
+1300 CAN TX id=0x102 dlc=8 data=01 01 00 32 00 31 00 30 result=CAN_OK
+1301 CAN TX id=0x103 dlc=8 data=00 00 04 E2 00 00 04 DA result=CAN_OK
+```
+
+- `RX` = frame ที่ MCP2515 รับจาก CAN bus, `TX` = frame ที่ controller พยายามส่ง
+- `id` และ `data` แสดงเป็น hexadecimal; `dlc` คือจำนวน byte ของ payload
+- `result=CAN_OK` หมายถึงคำสั่งอ่าน/ส่งสำเร็จ ถ้าเป็นตัวเลขคือรหัส error จากไลบรารี MCP_CAN
+- ถ้าไม่ต้องการ log ทุก frame ให้เปลี่ยน `#define CAN_SERIAL_DEBUG 0`
+
+## 6. ตั้งค่า PID ผ่าน TM1638 แบบ Local
+
+ต่อ TM1638 เข้ากับ Arduino Mega 2560 โดยไม่ผ่าน CAN:
+
+| TM1638 | Mega 2560 |
+|---|---:|
+| STB | 34 |
+| DIO | 35 |
+| CLK | 36 |
+| VCC | 5V |
+| GND | GND |
+
+ปุ่มใช้ดังนี้:
+
+| ปุ่ม | หน้าที่ |
+|---|---|
+| S1 / S2 / S3 | เลือก Kp / Ki / Kd (ปุ่มเรียงจากซ้ายไปขวา) |
+| S4 / S5 | เพิ่ม / ลดค่า (`0.01`; Kd ครั้งละ `0.001`) |
+| S6 | บันทึกค่าลง EEPROM |
+| S7 | โหลดค่าล่าสุดจาก EEPROM |
+| S8 | เข้า/ออกโหมดตั้งค่า |
+
+เมื่อเข้าโหมดตั้งค่า มอเตอร์จะหยุดและคำสั่งเคลื่อนที่จาก CAN จะถูกเพิกเฉย
+ชั่วคราว ค่าใหม่จะมีผลกับ PID ทันที แต่จะคงอยู่หลังปิดเครื่องเฉพาะเมื่อกด S6
+เท่านั้น ไฟ LED ดวงขวาสุดหมายถึงมีค่าที่ยังไม่ได้บันทึก
+
+หากไม่ได้ต่อ MCP2515 firmware จะไม่ค้างอยู่ในขั้นตอนเริ่มต้น ทำให้ยังใช้ TM1638
+ตั้งค่า PID บนโต๊ะได้ตามปกติ

@@ -63,6 +63,18 @@ const unsigned long CAN_ID_ENCODER_FL_FR = 0x103; // ticks สะสม FL/FR, i
 const unsigned long CAN_ID_ENCODER_BL_BR = 0x104; // ticks สะสม BL/BR, int32 signed แบบ big-endian
 const unsigned long CAN_TIMEOUT = 300;        // Timeout (ms) ตัดการทำงานมอเตอร์อัตโนมัติ
 
+// TM1638 local PID tuning panel (ไม่ใช้ CAN bus)
+// เลือกขาที่ว่างบน Arduino Mega 2560; ไม่ชนกับ Encoder, Motor หรือ SPI/CAN
+constexpr uint8_t TM1638_STB_PIN = 34;
+constexpr uint8_t TM1638_CLK_PIN = 36;
+constexpr uint8_t TM1638_DIO_PIN = 35;
+constexpr int EEPROM_PID_SETTINGS_ADDRESS = 0;
+
+// Serial CAN monitor (Serial Monitor: 115200 baud)
+// แสดงทุก CAN frame ที่รับเข้า/ส่งออก พร้อม ID, DLC และ payload แบบ hex
+// ปิดเป็น 0 เมื่อต้องการลดภาระ Serial ตอนใช้งานจริง
+#define CAN_SERIAL_DEBUG 1
+
 // ความถี่ Crystal บนโมดูล MCP2515 (MCP_8MHZ หรือ MCP_16MHZ)
 #define CAN_CLOCK_SET MCP_8MHZ
 
