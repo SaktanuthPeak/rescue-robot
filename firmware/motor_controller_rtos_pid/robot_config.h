@@ -65,8 +65,40 @@ const unsigned long CAN_TIMEOUT = 300;        // Timeout (ms) ตัดการ
 #define CAN_CLOCK_SET MCP_8MHZ
 
 // -----------------------------------------
-// 5. Direct-PWM motion tuning (ไม่มี Closed-Loop PID)
+// 5. TM1638 PID Tuning Panel
+// ใช้ขาว่างของ Mega เพื่อไม่ชนกับ PWM, Encoder และ SPI ของ MCP2515
+// TM1638 เป็น serial แบบ 3 สายของตัวเอง ไม่ใช่ SPI
 // -----------------------------------------
-constexpr uint8_t MOTOR_BASE_PWM = 180; // PWM ที่ใช้กับคำสั่งเคลื่อนที่
+#define TM1638_STROBE_PIN 42
+#define TM1638_CLOCK_PIN  43
+#define TM1638_DATA_PIN   44
+
+// EEPROM address สำหรับ PID configuration ของ firmware ชุด RTOS นี้
+constexpr int PID_EEPROM_ADDRESS = 0;
+
+// -----------------------------------------
+// 6. Motion Tuning & Closed-Loop PID
+// -----------------------------------------
+constexpr uint8_t MOTOR_BASE_PWM = 180;       // ค่า PWM พื้นฐาน
+constexpr uint8_t MOTOR_MAX_PWM  = 255;       // ค่า PWM สูงสุด
+constexpr uint8_t MOTOR_MIN_PWM  = 60;        // ค่า PWM ขั้นต่ำที่มอเตอร์เอาชนะแรงเสียดทาน
+
+// ความเร็วเป้าหมาย (Encoder ticks / second)
+constexpr float TARGET_SPEED_STRAIGHT = 800.0f;
+constexpr float TARGET_SPEED_SLIDE    = 700.0f;
+constexpr float TARGET_SPEED_SPIN     = 600.0f;
+
+// ค่า Gain PID สำหรับควบคุมความเร็วแต่ละล้อให้เท่ากัน
+constexpr float PID_KP = 0.35f;
+constexpr float PID_KI = 0.05f;
+constexpr float PID_KD = 0.01f;
+
+// ขอบเขตสำหรับปรับผ่าน TM1638
+constexpr float PID_KP_MIN = 0.0f;
+constexpr float PID_KP_MAX = 5.0f;
+constexpr float PID_KI_MIN = 0.0f;
+constexpr float PID_KI_MAX = 2.0f;
+constexpr float PID_KD_MIN = 0.0f;
+constexpr float PID_KD_MAX = 1.0f;
 
 #endif

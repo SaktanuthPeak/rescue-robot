@@ -11,6 +11,7 @@
 
 // Arduino_FreeRTOS.h must be included before the other FreeRTOS/Arduino headers.
 #include <Arduino_FreeRTOS.h>
+#include <queue.h>
 #include <semphr.h>
 
 #include <SPI.h>
@@ -19,6 +20,8 @@
 #include "robot_config.h"
 #include "encoder.h"
 #include "motor.h"
+#include "pid_config.h"
+#include "tm1638.h"
 
 // ---------------- CAN configuration ----------------
 MCP_CAN CAN0(CAN_CS_PIN);
@@ -39,10 +42,11 @@ enum PS2_Status : uint8_t {
 };
 
 // ---------------- FreeRTOS shared resources ----------------
-// motorStateMutex protects motor command/status and the encoder speed snapshot.
-// canBusMutex serializes MCP2515 SPI access.
+// motorStateMutex protects target speeds, PID state, command status and the
+// encoder speed snapshot. canBusMutex serializes MCP2515 SPI access.
 static SemaphoreHandle_t motorStateMutex = nullptr;
 static SemaphoreHandle_t canBusMutex = nullptr;
+static QueueHandle_t pidConfigQueue = nullptr;
 
 static unsigned long lastMotorMessageTime = 0;
 static bool motorCANAlive = false;
@@ -60,11 +64,53 @@ static const TickType_t TELEMETRY_PERIOD = pdMS_TO_TICKS(TELEMETRY_INTERVAL_MS);
 constexpr uint16_t CAN_TASK_STACK = 256;
 constexpr uint16_t CONTROL_TASK_STACK = 192;
 constexpr uint16_t TELEMETRY_TASK_STACK = 320;
+constexpr uint16_t PID_UI_TASK_STACK = 256;
+
+constexpr uint16_t PID_UI_INTERVAL_MS = 50;
+constexpr uint16_t PID_BUTTON_REPEAT_MS = 250;
+static const TickType_t PID_UI_PERIOD = pdMS_TO_TICKS(PID_UI_INTERVAL_MS);
+
+constexpr uint8_t BUTTON_SELECT_KP = 0x01;
+constexpr uint8_t BUTTON_SELECT_KI = 0x02;
+constexpr uint8_t BUTTON_SELECT_KD = 0x04;
+constexpr uint8_t BUTTON_DECREASE = 0x08;
+constexpr uint8_t BUTTON_INCREASE = 0x10;
+constexpr uint8_t BUTTON_STEP = 0x20;
+constexpr uint8_t BUTTON_DEFAULTS = 0x40;
+constexpr uint8_t BUTTON_SAVE = 0x80;
+
+const float PID_STEPS[] = {0.001f, 0.01f, 0.1f};
+
+static PidConfig activePidConfig;
 
 // ---------------- Forward declarations ----------------
 void task_can_receive(void *parameter);
 void task_motor_control(void *parameter);
 void task_telemetry(void *parameter);
+void task_pid_ui(void *parameter);
+
+static char selected_parameter_name(uint8_t parameterIndex) {
+  switch (parameterIndex) {
+    case 0: return 'P';
+    case 1: return 'I';
+    default: return 'D';
+  }
+}
+
+static float *selected_parameter_value(PidConfig &config, uint8_t parameterIndex) {
+  switch (parameterIndex) {
+    case 0: return &config.kp;
+    case 1: return &config.ki;
+    default: return &config.kd;
+  }
+}
+
+static void publish_pid_config(const PidConfig &config) {
+  if (pidConfigQueue != nullptr) {
+    // Queue length is one, so the latest UI value always replaces the old one.
+    xQueueOverwrite(pidConfigQueue, &config);
+  }
+}
 
 // ==================================================
 // แปลงคำสั่งจาก CAN Bus ไปยังการเคลื่อนที่ล้อ Mecanum
@@ -137,7 +183,7 @@ void send_telemetry() {
   bool alive;
 
   // Capture all shared values together so a telemetry line is internally
-  // consistent while the control task updates encoder speeds.
+  // consistent even while the control task is updating PID/encoder speeds.
   if (xSemaphoreTake(motorStateMutex, portMAX_DELAY) != pdTRUE) return;
 
   status = lastMotorStatus;
@@ -239,13 +285,14 @@ void task_can_receive(void *parameter) {
 }
 
 // ==================================================
-// Task: Encoder speed + fail-safe watchdog
+// Task: Encoder speed + PID + fail-safe watchdog
 // ==================================================
 void task_motor_control(void *parameter) {
   (void)parameter;
 
   TickType_t lastWakeTime = xTaskGetTickCount();
   unsigned long previousMs = millis();
+  PidConfig requestedPidConfig;
 
   for (;;) {
     vTaskDelayUntil(&lastWakeTime, CONTROL_LOOP_PERIOD);
@@ -259,8 +306,12 @@ void task_motor_control(void *parameter) {
     const float dt = (float)elapsedMs / 1000.0f;
 
     if (xSemaphoreTake(motorStateMutex, portMAX_DELAY) == pdTRUE) {
-      // This version uses direct fixed-PWM commands. Encoder speed is updated
-      // for telemetry only; it is not fed back into a PID controller.
+      // The control task is the only task that writes the live PID objects.
+      if (xQueueReceive(pidConfigQueue, &requestedPidConfig, 0) == pdPASS) {
+        pid_config_clamp(requestedPidConfig);
+        motor_set_pid_config(requestedPidConfig);
+      }
+
       encoder_update_speeds(dt);
 
       if (motorCANAlive && (currentMs - lastMotorMessageTime > CAN_TIMEOUT)) {
@@ -268,6 +319,8 @@ void task_motor_control(void *parameter) {
         lastMotorStatus = -1;
         motor_stop();
         Serial.println("WARNING: Motor CAN timeout - Fail-safe Stop");
+      } else {
+        motor_update_pid(dt);
       }
 
       xSemaphoreGive(motorStateMutex);
@@ -286,6 +339,96 @@ void task_telemetry(void *parameter) {
   for (;;) {
     vTaskDelayUntil(&lastWakeTime, TELEMETRY_PERIOD);
     send_telemetry();
+  }
+}
+
+// ==================================================
+// Task: อ่านปุ่ม TM1638 และแก้ค่า PID
+// ==================================================
+void task_pid_ui(void *parameter) {
+  (void)parameter;
+
+  TickType_t lastWakeTime = xTaskGetTickCount();
+  uint8_t previousButtons = 0;
+  uint8_t selectedParameter = 0; // 0=Kp, 1=Ki, 2=Kd
+  uint8_t stepIndex = 1;         // default step = 0.01
+  bool dirty = false;
+  unsigned long lastButtonRepeatMs = 0;
+
+  for (;;) {
+    vTaskDelayUntil(&lastWakeTime, PID_UI_PERIOD);
+
+    const uint8_t buttons = tm1638_read_buttons();
+    const uint8_t pressed = (uint8_t)(buttons & (uint8_t)~previousButtons);
+    previousButtons = buttons;
+    const unsigned long now = millis();
+    bool displayChanged = false;
+    bool configChanged = false;
+
+    if (pressed & BUTTON_SELECT_KP) {
+      selectedParameter = 0;
+      displayChanged = true;
+    } else if (pressed & BUTTON_SELECT_KI) {
+      selectedParameter = 1;
+      displayChanged = true;
+    } else if (pressed & BUTTON_SELECT_KD) {
+      selectedParameter = 2;
+      displayChanged = true;
+    }
+
+    if (pressed & BUTTON_STEP) {
+      stepIndex = (uint8_t)((stepIndex + 1) % 3);
+      displayChanged = true;
+    }
+
+    if (pressed & BUTTON_DEFAULTS) {
+      activePidConfig = pid_config_defaults();
+      dirty = true;
+      configChanged = true;
+      displayChanged = true;
+    }
+
+    if (pressed & BUTTON_SAVE) {
+      if (pid_config_save(activePidConfig)) {
+        dirty = false;
+      }
+      displayChanged = true;
+    }
+
+    const bool increaseHeld = (buttons & BUTTON_INCREASE) != 0;
+    const bool decreaseHeld = (buttons & BUTTON_DECREASE) != 0;
+    const bool increasePressed = (pressed & BUTTON_INCREASE) != 0;
+    const bool decreasePressed = (pressed & BUTTON_DECREASE) != 0;
+    const bool repeatReady = (now - lastButtonRepeatMs) >= PID_BUTTON_REPEAT_MS;
+
+    int8_t direction = 0;
+    if (increaseHeld && !decreaseHeld && (increasePressed || repeatReady)) {
+      direction = 1;
+    } else if (decreaseHeld && !increaseHeld && (decreasePressed || repeatReady)) {
+      direction = -1;
+    }
+
+    if (direction != 0) {
+      float *value = selected_parameter_value(activePidConfig, selectedParameter);
+      *value += direction * PID_STEPS[stepIndex];
+      pid_config_clamp(activePidConfig);
+      dirty = true;
+      configChanged = true;
+      displayChanged = true;
+      lastButtonRepeatMs = now;
+    }
+
+    if (configChanged) {
+      publish_pid_config(activePidConfig);
+    }
+
+    if (displayChanged) {
+      tm1638_display_pid(
+          selected_parameter_name(selectedParameter),
+          *selected_parameter_value(activePidConfig, selectedParameter),
+          stepIndex,
+          dirty);
+    }
   }
 }
 
@@ -315,18 +458,24 @@ void setup() {
   }
   CAN0.setMode(MCP_NORMAL);
 
-  Serial.println("MCP2515 Ready. FreeRTOS Mecanum Motor Controller (direct PWM) active.");
+  Serial.println("MCP2515 Ready. FreeRTOS Mecanum Motor Controller active.");
+
+  tm1638_begin();
+  pid_config_load(activePidConfig);
+  tm1638_display_pid('P', activePidConfig.kp, 1, false);
 
   motorStateMutex = xSemaphoreCreateMutex();
   canBusMutex = xSemaphoreCreateMutex();
+  pidConfigQueue = xQueueCreate(1, sizeof(PidConfig));
 
-  if (motorStateMutex == nullptr || canBusMutex == nullptr) {
-    Serial.println("ERROR: FreeRTOS mutex creation failed. Motors stopped.");
+  if (motorStateMutex == nullptr || canBusMutex == nullptr || pidConfigQueue == nullptr) {
+    Serial.println("ERROR: FreeRTOS resource creation failed. Motors stopped.");
     motor_stop();
     for (;;) delay(1000);
   }
 
   motor_stop();
+  publish_pid_config(activePidConfig);
 
   const BaseType_t canTaskResult = xTaskCreate(
     task_can_receive,
@@ -352,8 +501,16 @@ void setup() {
       1,
       nullptr);
 
+  const BaseType_t pidUiTaskResult = xTaskCreate(
+      task_pid_ui,
+      "PID_UI",
+      PID_UI_TASK_STACK,
+      nullptr,
+      1,
+      nullptr);
+
   if (canTaskResult != pdPASS || controlTaskResult != pdPASS ||
-      telemetryTaskResult != pdPASS) {
+      telemetryTaskResult != pdPASS || pidUiTaskResult != pdPASS) {
     Serial.println("ERROR: FreeRTOS task creation failed. Motors stopped.");
     motor_stop();
   }
