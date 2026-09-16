@@ -102,17 +102,6 @@ void motor_stop() {
     set_raw_motor_speeds(0, 0, 0, 0);
 }
 
-void motor_set_pid_gains(float kp, float ki, float kd) {
-    // AVR is an 8-bit MCU; protect multi-byte float updates from an RTOS
-    // context switch or encoder interrupt while the values are copied.
-    noInterrupts();
-    pid_fl.kp = kp; pid_fl.ki = ki; pid_fl.kd = kd;
-    pid_fr.kp = kp; pid_fr.ki = ki; pid_fr.kd = kd;
-    pid_bl.kp = kp; pid_bl.ki = ki; pid_bl.kd = kd;
-    pid_br.kp = kp; pid_br.ki = ki; pid_br.kd = kd;
-    interrupts();
-}
-
 // ----------------------------------------------------
 // Mecanum Kinematics
 // ----------------------------------------------------

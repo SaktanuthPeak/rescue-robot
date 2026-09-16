@@ -52,6 +52,7 @@ const unsigned long DHT_INTERVAL_MS = 2000;
 
 DHT dht(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
 int humidityPercent = -1;
+float temperatureC = -1.0;
 unsigned long lastDhtTime = 0;
 
 // =====================================================
@@ -223,16 +224,26 @@ void read_ir_sensors()
 void read_dht_sensor()
 {
     const float humidity = dht.readHumidity();
+    const float temperature = dht.readTemperature();
 
     // DHT11 can occasionally return NaN while the line is settling. Keep the
-    // sentinel -1 so the backend/UI can distinguish unavailable from 0% RH.
-    if (isnan(humidity))
+    // sentinel values so the backend/UI can distinguish unavailable data.
+    if (isnan(humidity) || isnan(temperature))
     {
         humidityPercent = -1;
+        temperatureC = -1.0;
+        Serial.println("DHT11 | read failed");
         return;
     }
 
     humidityPercent = constrain(static_cast<int>(humidity + 0.5f), 0, 100);
+    temperatureC = temperature;
+
+    Serial.print("DHT11 | Humidity: ");
+    Serial.print(humidityPercent);
+    Serial.print("% | Temperature: ");
+    Serial.print(temperatureC, 1);
+    Serial.println(" C");
 }
 
 // =====================================================

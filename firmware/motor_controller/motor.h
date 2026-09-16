@@ -21,9 +21,6 @@ void motor_spin_right();
 // อัปเดตลูปควบคุมความเร็ว Closed-Loop PID
 void motor_update_pid(float dt);
 
-// เปลี่ยนค่า PID runtime จาก local tuning panel หรือแหล่งตั้งค่าอื่น
-void motor_set_pid_gains(float kp, float ki, float kd);
-
 // สั่งระดับ PWM และทิศทางโดยตรง (-255 ถึง 255)
 void set_raw_motor_speeds(int pwm_fl, int pwm_fr, int pwm_bl, int pwm_br);
 

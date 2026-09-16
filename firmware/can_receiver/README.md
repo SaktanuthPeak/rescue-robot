@@ -10,6 +10,7 @@ sensor 4 ช่อง พร้อมส่งข้อมูลออก Raspbe
 - อ่านแรงดันแบตเตอรี่จาก `A0`
 - อ่าน IR จาก `A1` ถึง `A4`
 - อ่านความชื้นจาก DHT11 ที่ `D8`
+- พิมพ์ค่า humidity และ temperature จาก DHT11 ทาง Serial ทุก 2 วินาที
 - ส่งข้อมูลไป Raspberry Pi ผ่าน USB Serial ในรูปแบบ `RB3`
 - OLED แสดงเฉพาะไอคอนแบตเตอรี่และแรงดัน
 - ไม่มีการสั่ง motor, servo, PCA9685 หรือ relay/pump
@@ -41,5 +42,11 @@ RB3,motor_code,motor_alive,arm_code,arm_alive,battery_mV,battery_adc,ir_front,ir
 
 ถ้าใช้ DHT11 แบบตัวเซนเซอร์เปล่า ให้ใส่ตัวต้านทาน pull-up ประมาณ `10kΩ`
 ระหว่าง `DATA` กับ `5V` (โมดูล DHT11 ส่วนใหญ่มีตัวนี้มาให้แล้ว)
+
+ตัวอย่าง log:
+
+```text
+DHT11 | Humidity: 62% | Temperature: 29.0 C
+```
 
 ไฟล์ PCA9685 และ configuration เดิมของ Arm Controller Test ถูกถอดออกจากโฟลเดอร์นี้แล้ว โดย implementation แขนกลจริงยังอยู่ใน `firmware/arm_controller/`.
