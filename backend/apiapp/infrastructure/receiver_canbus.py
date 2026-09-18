@@ -1,9 +1,11 @@
-"""USB serial transport for the arm-controller CAN receiver Arduino.
+"""USB serial transport for the CAN receiver / FastAPI bridge Arduino.
 
-The receiver emits one RB2, RB3, or RB4 snapshot every 100 ms:
+The Mega motor controller emits one MC1 snapshot every 100 ms. Legacy receivers may
+still emit RB1, RB2, RB3, or RB4:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,flame_front,flame_right,flame_rear,flame_left,humidity_percent,seq*CK
     RB4,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,axis1_pwm,axis2_pwm,axis3_pwm,pump_on,seq*CK
+    MC1,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,ir_front,ir_right,ir_rear,ir_left,enc_fl,enc_fr,enc_bl,enc_br,speed_fl,speed_fr,speed_bl,speed_br,seq*CK
 
 RB4 is the arm-controller format. The three axis fields are the latest PCA9685
 PWM commands (not encoder-measured angles), and ``pump_on`` is 0 or 1.
@@ -52,7 +54,7 @@ ReceiverParseErrorSink = Callable[[], None]
 
 @dataclass(frozen=True, slots=True)
 class ReceiverSample:
-    protocol: Literal["RB1", "RB2", "RB3", "RB4"]
+    protocol: Literal["RB1", "RB2", "RB3", "RB4", "MC1"]
     motor_code: int
     motor_alive: bool
     arm_code: int
@@ -71,12 +73,24 @@ class ReceiverSample:
     arm_pump_on: bool | None
     sequence: int
     received_at: datetime
+    ir_front: int = 0
+    ir_right: int = 0
+    ir_rear: int = 0
+    ir_left: int = 0
+    encoder_ticks_fl: int = 0
+    encoder_ticks_fr: int = 0
+    encoder_ticks_bl: int = 0
+    encoder_ticks_br: int = 0
+    speed_fl: float = 0.0
+    speed_fr: float = 0.0
+    speed_bl: float = 0.0
+    speed_br: float = 0.0
 
 
 def parse_line(raw: bytes) -> ReceiverSample | None:
-    """Decode one RB1/RB2/RB3/RB4 line and reject malformed fields or checksums."""
+    """Decode one MC1/RB1/RB2/RB3/RB4 line and reject malformed frames."""
     text = raw.decode("ascii", errors="ignore").strip()
-    if not text.startswith(("RB1,", "RB2,", "RB3,", "RB4,")):
+    if not text.startswith(("MC1,", "RB1,", "RB2,", "RB3,", "RB4,")):
         return None
 
     payload, separator, checksum_text = text.partition("*")
@@ -103,12 +117,18 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         return None
     if fields[0] == "RB4" and len(fields) != 12:
         return None
+    if fields[0] == "MC1" and len(fields) != 20:
+        return None
 
     try:
         motor_code = int(fields[1])
         motor_alive = int(fields[2])
         arm_code = int(fields[3])
         arm_alive = int(fields[4])
+        ir_front = ir_right = ir_rear = ir_left = 0
+        encoder_ticks_fl = encoder_ticks_fr = 0
+        encoder_ticks_bl = encoder_ticks_br = 0
+        speed_fl = speed_fr = speed_bl = speed_br = 0.0
         if fields[0] == "RB2":
             battery_millivolts = int(fields[5])
             battery_adc = int(fields[6])
@@ -153,6 +173,27 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
             arm_pump_on = bool(pump_on_value)
             humidity_percent = None
             sequence = int(fields[11])
+        elif fields[0] == "MC1":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
+            arm_axis_1_pwm = arm_axis_2_pwm = arm_axis_3_pwm = None
+            arm_pump_on = None
+            humidity_percent = None
+            ir_front = int(fields[7])
+            ir_right = int(fields[8])
+            ir_rear = int(fields[9])
+            ir_left = int(fields[10])
+            encoder_ticks_fl = int(fields[11])
+            encoder_ticks_fr = int(fields[12])
+            encoder_ticks_bl = int(fields[13])
+            encoder_ticks_br = int(fields[14])
+            speed_fl = float(fields[15])
+            speed_fr = float(fields[16])
+            speed_bl = float(fields[17])
+            speed_br = float(fields[18])
+            sequence = int(fields[19])
         else:
             battery_millivolts = 0
             battery_adc = 0
@@ -174,7 +215,17 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         or arm_alive not in (0, 1)
         or battery_millivolts < 0
         or not 0 <= battery_adc <= 1023
-        or not all(0 <= value <= 1023 for value in (flame_front, flame_right, flame_rear, flame_left))
+        or not all(
+            0 <= value <= 1023
+            for value in (flame_front, flame_right, flame_rear, flame_left)
+        )
+        or (
+            fields[0] == "MC1"
+            and not all(
+                0 <= value <= 1023
+                for value in (ir_front, ir_right, ir_rear, ir_left)
+            )
+        )
         or any(
             value is not None and not 0 <= value <= 4095
             for value in (arm_axis_1_pwm, arm_axis_2_pwm, arm_axis_3_pwm)
@@ -203,6 +254,18 @@ def parse_line(raw: bytes) -> ReceiverSample | None:
         arm_pump_on=arm_pump_on,
         sequence=sequence,
         received_at=datetime.now(UTC),
+        ir_front=ir_front,
+        ir_right=ir_right,
+        ir_rear=ir_rear,
+        ir_left=ir_left,
+        encoder_ticks_fl=encoder_ticks_fl,
+        encoder_ticks_fr=encoder_ticks_fr,
+        encoder_ticks_bl=encoder_ticks_bl,
+        encoder_ticks_br=encoder_ticks_br,
+        speed_fl=speed_fl,
+        speed_fr=speed_fr,
+        speed_bl=speed_bl,
+        speed_br=speed_br,
     )
 
 
@@ -360,6 +423,18 @@ class ReceiverCanbusService:
             "arm_axis_2_pwm": sample.arm_axis_2_pwm if sample else None,
             "arm_axis_3_pwm": sample.arm_axis_3_pwm if sample else None,
             "arm_pump_on": sample.arm_pump_on if sample else None,
+            "ir_front": sample.ir_front if sample else 0,
+            "ir_right": sample.ir_right if sample else 0,
+            "ir_rear": sample.ir_rear if sample else 0,
+            "ir_left": sample.ir_left if sample else 0,
+            "encoder_ticks_fl": sample.encoder_ticks_fl if sample else 0,
+            "encoder_ticks_fr": sample.encoder_ticks_fr if sample else 0,
+            "encoder_ticks_bl": sample.encoder_ticks_bl if sample else 0,
+            "encoder_ticks_br": sample.encoder_ticks_br if sample else 0,
+            "speed_fl": sample.speed_fl if sample else 0.0,
+            "speed_fr": sample.speed_fr if sample else 0.0,
+            "speed_bl": sample.speed_bl if sample else 0.0,
+            "speed_br": sample.speed_br if sample else 0.0,
             "battery_millivolts": sample.battery_millivolts if sample else 0,
             "battery_volts": round(sample.battery_millivolts / 1000, 3) if sample else 0.0,
             "battery_adc": sample.battery_adc if sample else 0,
@@ -402,7 +477,7 @@ class ReceiverCanbusService:
                         continue
                     sample = parse_line(line)
                     if sample is None:
-                        if line.lstrip().startswith((b"RB1,", b"RB2,", b"RB3,", b"RB4,")):
+                        if line.lstrip().startswith((b"MC1,", b"RB1,", b"RB2,", b"RB3,", b"RB4,")):
                             with self._lock:
                                 self._parse_errors += 1
                             self._notify_parse_error()

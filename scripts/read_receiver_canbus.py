@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Read RB2/RB3 telemetry from a CAN receiver over USB serial.
+"""Read MC1/RB2/RB3/RB4 telemetry from a CAN receiver over USB serial.
 
 The firmware emits either:
     RB2,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,seq*CK
 or:
     RB3,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,
     flame_front,flame_right,flame_rear,flame_left,humidity_percent,seq*CK
+or:
+    MC1,motor_code,motor_alive,arm_code,arm_alive,voltage_mV,voltage_adc,
+    ir_front,ir_right,ir_rear,ir_left,enc_fl,enc_fr,enc_bl,enc_br,
+    speed_fl,speed_fr,speed_bl,speed_br,seq*CK
 
 Human-readable Arduino log lines are intentionally ignored.  This makes the
 reader safe to use while the receiver is printing boot and CAN diagnostics.
@@ -58,12 +62,25 @@ class ReceiverTelemetry:
     humidity_percent: int | None
     flame_valid: bool
     sequence: int
+    protocol: str = ""
+    ir_front: int = 0
+    ir_right: int = 0
+    ir_rear: int = 0
+    ir_left: int = 0
+    encoder_ticks_fl: int = 0
+    encoder_ticks_fr: int = 0
+    encoder_ticks_bl: int = 0
+    encoder_ticks_br: int = 0
+    speed_fl: float = 0.0
+    speed_fr: float = 0.0
+    speed_bl: float = 0.0
+    speed_br: float = 0.0
 
 
 def parse_line(raw: bytes) -> ReceiverTelemetry | None:
-    """Parse one RB1/RB2/RB3 line and reject noise or a bad XOR checksum."""
+    """Parse one MC1/RB1/RB2/RB3/RB4 line and reject invalid frames."""
     text = raw.decode("ascii", errors="ignore").strip()
-    if not text.startswith(("RB1,", "RB2,", "RB3,")):
+    if not text.startswith(("MC1,", "RB1,", "RB2,", "RB3,", "RB4,")):
         return None
 
     payload, separator, checksum_text = text.partition("*")
@@ -88,12 +105,20 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         return None
     if fields[0] == "RB3" and len(fields) not in (12, 13):
         return None
+    if fields[0] == "RB4" and len(fields) != 12:
+        return None
+    if fields[0] == "MC1" and len(fields) != 20:
+        return None
 
     try:
         motor_code = int(fields[1])
         motor_alive = int(fields[2])
         arm_code = int(fields[3])
         arm_alive = int(fields[4])
+        ir_front = ir_right = ir_rear = ir_left = 0
+        encoder_ticks_fl = encoder_ticks_fr = 0
+        encoder_ticks_bl = encoder_ticks_br = 0
+        speed_fl = speed_fr = speed_bl = speed_br = 0.0
         if fields[0] == "RB2":
             battery_millivolts = int(fields[5])
             battery_adc = int(fields[6])
@@ -118,6 +143,32 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
             else:
                 humidity_percent = None
                 sequence = int(fields[11])
+        elif fields[0] == "RB4":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
+            humidity_percent = None
+            sequence = int(fields[11])
+        elif fields[0] == "MC1":
+            battery_millivolts = int(fields[5])
+            battery_adc = int(fields[6])
+            flame_front = flame_right = flame_rear = flame_left = 0
+            flame_valid = False
+            humidity_percent = None
+            ir_front = int(fields[7])
+            ir_right = int(fields[8])
+            ir_rear = int(fields[9])
+            ir_left = int(fields[10])
+            encoder_ticks_fl = int(fields[11])
+            encoder_ticks_fr = int(fields[12])
+            encoder_ticks_bl = int(fields[13])
+            encoder_ticks_br = int(fields[14])
+            speed_fl = float(fields[15])
+            speed_fr = float(fields[16])
+            speed_bl = float(fields[17])
+            speed_br = float(fields[18])
+            sequence = int(fields[19])
         else:
             battery_millivolts = 0
             battery_adc = 0
@@ -137,7 +188,14 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         or arm_alive not in (0, 1)
         or battery_millivolts < 0
         or not 0 <= battery_adc <= 1023
-        or not all(0 <= value <= 1023 for value in (flame_front, flame_right, flame_rear, flame_left))
+        or not all(
+            0 <= value <= 1023
+            for value in (flame_front, flame_right, flame_rear, flame_left)
+        )
+        or fields[0] == "MC1"
+        and not all(
+            0 <= value <= 1023 for value in (ir_front, ir_right, ir_rear, ir_left)
+        )
         or humidity_percent is not None and not 0 <= humidity_percent <= 100
     ):
         return None
@@ -145,6 +203,7 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         return None
 
     return ReceiverTelemetry(
+        protocol=fields[0],
         motor_code=motor_code,
         motor_status=STATUS_NAMES.get(motor_code, "NO_DATA"),
         motor_alive=bool(motor_alive),
@@ -161,6 +220,18 @@ def parse_line(raw: bytes) -> ReceiverTelemetry | None:
         humidity_percent=humidity_percent,
         flame_valid=flame_valid,
         sequence=sequence,
+        ir_front=ir_front,
+        ir_right=ir_right,
+        ir_rear=ir_rear,
+        ir_left=ir_left,
+        encoder_ticks_fl=encoder_ticks_fl,
+        encoder_ticks_fr=encoder_ticks_fr,
+        encoder_ticks_bl=encoder_ticks_bl,
+        encoder_ticks_br=encoder_ticks_br,
+        speed_fl=speed_fl,
+        speed_fr=speed_fr,
+        speed_bl=speed_bl,
+        speed_br=speed_br,
     )
 
 
@@ -189,17 +260,11 @@ def main() -> int:
             else:
                 motor_link = "CAN OK" if telemetry.motor_alive else "CAN TIMEOUT"
                 arm_link = "CAN OK" if telemetry.arm_alive else "CAN TIMEOUT"
-                humidity_label = (
-                    f"{telemetry.humidity_percent}%"
-                    if telemetry.humidity_percent is not None
-                    else "n/a"
-                )
                 print(
                     f"seq={telemetry.sequence:>6} | "
                     f"BAT={telemetry.battery_volts:>5.2f} V | "
-                    f"HUM={humidity_label:>4} | "
-                    f"FLAME={telemetry.flame_front:>4},{telemetry.flame_right:>4},"
-                    f"{telemetry.flame_rear:>4},{telemetry.flame_left:>4} | "
+                    f"IR={telemetry.ir_front:>4},{telemetry.ir_right:>4},"
+                    f"{telemetry.ir_rear:>4},{telemetry.ir_left:>4} | "
                     f"MOTOR={telemetry.motor_status:<14} ({motor_link}) | "
                     f"ARM={telemetry.arm_status:<14} ({arm_link})",
                     flush=True,

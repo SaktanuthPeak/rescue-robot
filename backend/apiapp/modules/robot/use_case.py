@@ -15,6 +15,25 @@ class RobotUseCase:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Motor codes must be between 0 and 8",
             )
+        if request.channel == "arm" and request.code not in {
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            11,
+            12,
+            13,
+            14,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Arm codes 9 and 10 are not supported",
+            )
         if request.channel == "all" and request.code != 0:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

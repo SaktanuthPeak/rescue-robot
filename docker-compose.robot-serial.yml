@@ -7,8 +7,8 @@ services:
   backend:
     environment:
       ROBOT_SERIAL_ENABLED: "True"
-      # arm_controller emits RB2 for motor/arm status. A receiver with analog
-      # sensors may emit RB3; both are parsed by the same service.
+      # motor_controller_mega emits MC1 for motor/arm/battery/IR/encoder status.
+      # Legacy RB2/RB3/RB4 frames are still parsed by the same service.
       # The receiver service is the only owner of this USB serial port.
       TELEMETRY_SOURCE: "receiver"
     devices:

@@ -1,52 +1,76 @@
-# CAN Receiver
+# CAN Receiver / FastAPI Protocol Bridge
 
-โฟลเดอร์นี้ใช้เป็น CAN receiver สำหรับอ่านสถานะจาก CAN sender และอ่าน analog IR
-sensor 4 ช่อง พร้อมส่งข้อมูลออก Raspberry Pi ผ่าน USB Serial port เดิม
+เฟิร์มแวร์นี้ใช้กับ Arduino UNO ทำหน้าที่รับคำสั่งจาก remote ผ่าน CAN, ควบคุม
+PCA9685/ปั๊ม และเปิด USB serial protocol ให้ FastAPI ควบคุมหรืออ่านสถานะได้
 
-ต้องติดตั้งไลบรารี Arduino `DHT sensor library` และ `U8g2` ก่อน compile
+```text
+remote CAN sender ─┐
+                   ├─ CAN receiver UNO ── USB Serial ── Raspberry Pi / FastAPI
+FastAPI command ───┘          ├─ PCA9685 arm
+                              ├─ relay/pump
+                              └─ arm/pump telemetry
+```
 
-- รับ `CAN_ID_MOTOR` (`0x100`) และ `CAN_ID_ARM` (`0x101`)
-- ตรวจสอบ status และ timeout 300 ms
-- อ่านแรงดันแบตเตอรี่จาก `A0`
-- อ่าน IR จาก `A1` ถึง `A4`
-- อ่านความชื้นจาก DHT11 ที่ `D8`
-- พิมพ์ค่า humidity และ temperature จาก DHT11 ทาง Serial ทุก 2 วินาที
-- ส่งข้อมูลไป Raspberry Pi ผ่าน USB Serial ในรูปแบบ `RB3`
-- OLED แสดงเฉพาะไอคอนแบตเตอรี่และแรงดัน
-- ไม่มีการสั่ง motor, servo, PCA9685 หรือ relay/pump
+ไม่มีโค้ดอ่าน battery module, IR รอบคัน, DHT11 หรือ OLED ใน sketch นี้แล้ว
+การอ่าน battery module และ IR อยู่ใน `firmware/motor_controller_mega/` และส่งเข้า
+FastAPI ผ่าน protocol `MC1`
 
-## การต่อสาย
+## Protocol
 
-| Arduino | ต่อกับ |
+ตั้ง USB serial ที่ `115200 baud` และส่งคำสั่งจบด้วย newline:
+
+| คำสั่ง | ความหมาย |
 | --- | --- |
-| `A0` | voltage divider output |
-| `A1` | IR หน้า (front) ขา `AO` |
-| `A2` | IR ขวา (right) ขา `AO` |
-| `A3` | IR หลัง (rear) ขา `AO` |
-| `A4` | IR ซ้าย (left) ขา `AO` |
-| `D8` | DHT11 ขา `DATA` |
-| `5V` | VCC ของ IR sensor ทุกตัว |
-| `5V` | VCC ของ DHT11 |
-| `GND` | GND ของ IR sensor ทุกตัว, DHT11 และ voltage divider |
-| `D6` | OLED SDA |
-| `D7` | OLED SCL |
+| `CMD:MOTOR:0..8` | ส่งสถานะมอเตอร์ต่อเข้า CAN ID `0x100` |
+| `CMD:ARM:0..8,11..14` | ควบคุมแขน/ปั๊มผ่าน PCA9685 และ relay |
+| `CMD:ALL:0` หรือ `STOP` | หยุดมอเตอร์ แขน และปั๊ม |
+| `PING` | ตรวจลิงก์ ได้คำตอบ `PONG` |
 
-IR ต้องต่อขา `AO` ไม่ใช่ `DO` เพราะ firmware อ่านค่า analog `0..1023`
-และใช้ D0/D1 เป็น USB Serial ห้ามนำไปต่อ OLED หรือ sensor
+คำสั่งจาก FastAPI จะ override คำสั่ง CAN ชั่วคราวและหมดอายุภายใน `1000 ms`
+หากไม่มีคำสั่งซ้ำ เพื่อให้มอเตอร์/แขนหยุดเมื่อ USB link หาย
 
-รูปแบบ Serial:
+ทุก `100 ms` บอร์ดส่ง telemetry รูปแบบ `RB4` พร้อม XOR checksum:
 
 ```text
-RB3,motor_code,motor_alive,arm_code,arm_alive,battery_mV,battery_adc,ir_front,ir_right,ir_rear,ir_left,humidity_percent,seq*CK
+RB4,motor_code,motor_alive,arm_code,arm_alive,battery_mV,battery_adc,axis1_pwm,axis2_pwm,axis3_pwm,pump_on,seq*CK
 ```
 
-ถ้าใช้ DHT11 แบบตัวเซนเซอร์เปล่า ให้ใส่ตัวต้านทาน pull-up ประมาณ `10kΩ`
-ระหว่าง `DATA` กับ `5V` (โมดูล DHT11 ส่วนใหญ่มีตัวนี้มาให้แล้ว)
+บอร์ดนี้ยังส่ง field `battery_mV` และ `battery_adc` เป็น `0` เพื่อคงรูปแบบ `RB4`
+สำหรับระบบเก่าเท่านั้น ค่า battery จริงมาจาก `MC1` ของ Mega
 
-ตัวอย่าง log:
+ตัวอย่าง:
 
 ```text
-DHT11 | Humidity: 62% | Temperature: 29.0 C
+RB4,-1,0,13,1,0,0,335,303,305,0,42*CK
 ```
 
-ไฟล์ PCA9685 และ configuration เดิมของ Arm Controller Test ถูกถอดออกจากโฟลเดอร์นี้แล้ว โดย implementation แขนกลจริงยังอยู่ใน `firmware/arm_controller/`.
+รูปแบบ `RB4` ตรงกับ parser ใน `backend/apiapp/infrastructure/receiver_canbus.py`
+และรองรับโดย `docker-compose.robot-serial.yml`
+
+## Pin map: Arduino UNO
+
+| UNO pin | อุปกรณ์ | หมายเหตุ |
+| --- | --- | --- |
+| `A0..A3` | ไม่ได้ใช้งาน | battery/IR ย้ายไป Arduino Mega |
+| `A4/SDA` | PCA9685 `SDA` | สงวนไว้ ห้ามต่อ battery module |
+| `A5/SCL` | PCA9685 `SCL` | สงวนไว้ |
+| `D4` | relay/pump control | active LOW |
+| `D10` | MCP2515 `CS` |  |
+| `D11` | MCP2515 `MOSI/SI` | SPI |
+| `D12` | MCP2515 `MISO/SO` | SPI |
+| `D13` | MCP2515 `SCK` | SPI |
+| `D0/D1` | USB serial ไป Raspberry Pi | ห้ามต่อ sensor อื่น |
+
+MCP2515 ใช้ crystal `8 MHz`, CAN bitrate `500 kbps` และ firmware ใช้ polling จึงไม่ต้องต่อ
+ขา `INT`
+
+## PCA9685 arm channels
+
+| Channel | หน้าที่ | ค่าเริ่มต้น |
+| --- | --- | ---: |
+| `CH0` | ฐานซ้าย/ขวา | `335` |
+| `CH1` | แขนเดินหน้า/ถอยหลัง | `305` |
+| `CH2` | หัวขึ้น/ลง | `305` |
+
+ต้องติดตั้งไลบรารี Arduino `mcp_can` และวาง `PCA9685_Control.cpp/.h` ไว้ในโฟลเดอร์
+เดียวกับ sketch ก่อน compile

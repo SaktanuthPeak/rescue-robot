@@ -9,7 +9,7 @@ RobotLinkState = Literal["disabled", "connecting", "streaming", "disconnected"]
 
 class RobotStatusResponse(BaseModel):
     type: Literal["robot_status"]
-    protocol: Literal["RB1", "RB2", "RB3", "RB4"] | None
+    protocol: Literal["RB1", "RB2", "RB3", "RB4", "MC1"] | None
     port: str
     baudrate: int
     state: RobotLinkState
@@ -26,6 +26,18 @@ class RobotStatusResponse(BaseModel):
     arm_axis_2_pwm: int | None
     arm_axis_3_pwm: int | None
     arm_pump_on: bool | None
+    ir_front: int = Field(ge=0, le=1023)
+    ir_right: int = Field(ge=0, le=1023)
+    ir_rear: int = Field(ge=0, le=1023)
+    ir_left: int = Field(ge=0, le=1023)
+    encoder_ticks_fl: int
+    encoder_ticks_fr: int
+    encoder_ticks_bl: int
+    encoder_ticks_br: int
+    speed_fl: float
+    speed_fr: float
+    speed_bl: float
+    speed_br: float
     battery_millivolts: int = Field(ge=0)
     battery_volts: float = Field(ge=0)
     battery_adc: int = Field(ge=0)
