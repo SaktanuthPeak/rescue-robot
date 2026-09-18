@@ -131,8 +131,7 @@ void loop()
 
         if (ps2x.Button(PSB_PAD_UP)) { y_left = -1; }
         else if (ps2x.Button(PSB_PAD_DOWN)) { y_left = 1; }
-        if (ps2x.Button(PSB_PAD_LEFT)) { x_left = -1; }
-        else if (ps2x.Button(PSB_PAD_RIGHT)) { x_left = 1; }
+        
 
         if (x_left == 0 && y_left == 0) 
         {
@@ -148,6 +147,8 @@ void loop()
             }
         }
         currentMotorStatus = get_status_from_sticks(x_left, y_left, STOP);
+        if (ps2x.Button(PSB_PAD_LEFT)) { currentMotorStatus = SPIN_LEFT; }
+        else if (ps2x.Button(PSB_PAD_RIGHT)) { currentMotorStatus = SPIN_RIGHT; }
 
         // ----------------------------------------------------
         // ควบคุม Arm (แขนกล) ด้วยอนาล็อกขวา และปุ่มฟังก์ชัน
@@ -219,6 +220,8 @@ void loop()
             case BACKWARD: Serial.print("BACKWARD"); break;
             case LEFT: Serial.print("LEFT"); break;
             case RIGHT: Serial.print("RIGHT"); break;
+            case SPIN_LEFT: Serial.print("SPIN_LEFT"); break;
+            case SPIN_RIGHT: Serial.print("SPIN_RIGHT"); break;
             case FORWARD_LEFT: Serial.print("FORWARD_LEFT"); break;
             case FORWARD_RIGHT: Serial.print("FORWARD_RIGHT"); break;
             case BACKWARD_LEFT: Serial.print("BACKWARD_LEFT"); break;

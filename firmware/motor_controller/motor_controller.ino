@@ -18,8 +18,12 @@ enum PS2_Status : uint8_t {
   FORWARD_RIGHT = 6,
   BACKWARD_LEFT = 7,
   BACKWARD_RIGHT = 8,
-  SPIN_LEFT = 11,
-  SPIN_RIGHT = 12
+  SPIN_LEFT = 9,    // เปลี่ยนเป็น 9
+  SPIN_RIGHT = 10,  // เปลี่ยนเป็น 10
+  Pump_On = 11,     // ใส่เผื่อไว้ให้ Data Type ตรงกับฝั่งส่ง
+  Pump_Off = 12,
+  Head_Up = 13,
+  Head_Down = 14
 };
 
 unsigned long lastMotorMessageTime = 0;
@@ -55,9 +59,8 @@ void apply_motor_from_status(PS2_Status current) {
 
 // ตรวจสอบความถูกต้องของข้อมูล Motor Status
 bool is_valid_motor_status(byte value) {
-  return (value <= BACKWARD_RIGHT) || (value == SPIN_LEFT) || (value == SPIN_RIGHT);
+  return (value >= STOP && value <= SPIN_RIGHT);
 }
-
 // ==================================================
 // ประมวลผลข้อความจาก CAN Bus
 // ==================================================
